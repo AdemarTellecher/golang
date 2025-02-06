@@ -127,7 +127,7 @@ elapsed time in the summary line.
 The rule for a match in the cache is that the run involves the same
 test binary and the flags on the command line come entirely from a
 restricted set of 'cacheable' test flags, defined as -benchtime, -cpu,
--list, -parallel, -run, -short, -timeout, -failfast, -fullpath and -v.
+-list, -parallel, -run, -short, -skip, -timeout, -failfast, -fullpath and -v.
 If a run of go test has any test or non-test flags outside this set,
 the result is not cached. To disable test caching, use any test flag
 or argument other than the cacheable flags. The idiomatic way to disable
@@ -867,7 +867,7 @@ func runTest(ctx context.Context, cmd *base.Command, args []string) {
 		// patterns.
 		plist := load.TestPackageList(ctx, pkgOpts, pkgs)
 		testCoverPkgs = load.SelectCoverPackages(plist, match, "test")
-		if cfg.Experiment.CoverageRedesign && len(testCoverPkgs) > 0 {
+		if len(testCoverPkgs) > 0 {
 			// create a new singleton action that will collect up the
 			// meta-data files from all of the packages mentioned in
 			// "-coverpkg" and write them to a summary file. This new
@@ -984,9 +984,7 @@ func runTest(ctx context.Context, cmd *base.Command, args []string) {
 			// later package. Note that if -coverpkg is in effect
 			// p.Internal.Cover.GenMeta will wind up being set for
 			// all matching packages.
-			if len(p.TestGoFiles)+len(p.XTestGoFiles) == 0 &&
-				cfg.BuildCoverPkg == nil &&
-				cfg.Experiment.CoverageRedesign {
+			if len(p.TestGoFiles)+len(p.XTestGoFiles) == 0 && cfg.BuildCoverPkg == nil {
 				p.Internal.Cover.GenMeta = true
 			}
 		}
@@ -1092,7 +1090,7 @@ var windowsBadWords = []string{
 
 func builderTest(b *work.Builder, ctx context.Context, pkgOpts load.PackageOpts, p *load.Package, imported bool, writeCoverMetaAct *work.Action) (buildAction, runAction, printAction *work.Action, perr *load.Package, err error) {
 	if len(p.TestGoFiles)+len(p.XTestGoFiles) == 0 {
-		if cfg.BuildCover && cfg.Experiment.CoverageRedesign {
+		if cfg.BuildCover {
 			if p.Internal.Cover.GenMeta {
 				p.Internal.Cover.Mode = cfg.BuildCoverMode
 			}
@@ -1487,7 +1485,7 @@ func (r *runTestActor) Act(b *work.Builder, ctx context.Context, a *work.Action)
 
 	if p := a.Package; len(p.TestGoFiles)+len(p.XTestGoFiles) == 0 {
 		reportNoTestFiles := true
-		if cfg.BuildCover && cfg.Experiment.CoverageRedesign && p.Internal.Cover.GenMeta {
+		if cfg.BuildCover && p.Internal.Cover.GenMeta {
 			if err := sh.Mkdir(a.Objdir); err != nil {
 				return err
 			}
@@ -1783,6 +1781,7 @@ func (c *runCache) tryCacheWithID(b *work.Builder, a *work.Action, id string) bo
 			"-test.parallel",
 			"-test.run",
 			"-test.short",
+			"-test.skip",
 			"-test.timeout",
 			"-test.failfast",
 			"-test.v",

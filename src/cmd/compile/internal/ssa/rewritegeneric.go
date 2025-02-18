@@ -20678,6 +20678,17 @@ func rewriteValuegeneric_OpNilCheck(v *Value) bool {
 		v.copyOf(ptr)
 		return true
 	}
+	// match: (NilCheck ptr:(LocalAddr _ _) _)
+	// cond: warnRule(fe.Debug_checknil(), v, "removed nil check")
+	// result: ptr
+	for {
+		ptr := v_0
+		if ptr.Op != OpLocalAddr || !(warnRule(fe.Debug_checknil(), v, "removed nil check")) {
+			break
+		}
+		v.copyOf(ptr)
+		return true
+	}
 	// match: (NilCheck ptr:(NilCheck _ _) _ )
 	// result: ptr
 	for {
@@ -30295,6 +30306,84 @@ func rewriteValuegeneric_OpStaticLECall(v *Value) bool {
 		v1 := b.NewValue0(v.Pos, OpSB, typ.Uintptr)
 		v0.AddArg(v1)
 		v.AddArg2(v0, mem)
+		return true
+	}
+	// match: (StaticLECall {f} typ_ x y mem)
+	// cond: isSameCall(f, "runtime.efaceeq") && isDirectType(typ_) && clobber(v)
+	// result: (MakeResult (EqPtr x y) mem)
+	for {
+		if len(v.Args) != 4 {
+			break
+		}
+		f := auxToCall(v.Aux)
+		mem := v.Args[3]
+		typ_ := v.Args[0]
+		x := v.Args[1]
+		y := v.Args[2]
+		if !(isSameCall(f, "runtime.efaceeq") && isDirectType(typ_) && clobber(v)) {
+			break
+		}
+		v.reset(OpMakeResult)
+		v0 := b.NewValue0(v.Pos, OpEqPtr, typ.Bool)
+		v0.AddArg2(x, y)
+		v.AddArg2(v0, mem)
+		return true
+	}
+	// match: (StaticLECall {f} itab x y mem)
+	// cond: isSameCall(f, "runtime.ifaceeq") && isDirectIface(itab) && clobber(v)
+	// result: (MakeResult (EqPtr x y) mem)
+	for {
+		if len(v.Args) != 4 {
+			break
+		}
+		f := auxToCall(v.Aux)
+		mem := v.Args[3]
+		itab := v.Args[0]
+		x := v.Args[1]
+		y := v.Args[2]
+		if !(isSameCall(f, "runtime.ifaceeq") && isDirectIface(itab) && clobber(v)) {
+			break
+		}
+		v.reset(OpMakeResult)
+		v0 := b.NewValue0(v.Pos, OpEqPtr, typ.Bool)
+		v0.AddArg2(x, y)
+		v.AddArg2(v0, mem)
+		return true
+	}
+	// match: (StaticLECall {f} [argsize] typ_ map_ key:(SelectN [0] sbts:(StaticLECall {g} _ ptr len mem)) m:(SelectN [1] sbts))
+	// cond: (isSameCall(f, "runtime.mapaccess1_faststr") || isSameCall(f, "runtime.mapaccess2_faststr") || isSameCall(f, "runtime.mapdelete_faststr")) && isSameCall(g, "runtime.slicebytetostring") && key.Uses == 1 && sbts.Uses == 2 && resetCopy(m, mem) && clobber(sbts) && clobber(key)
+	// result: (StaticLECall {f} [argsize] typ_ map_ (StringMake <typ.String> ptr len) mem)
+	for {
+		if len(v.Args) != 4 {
+			break
+		}
+		argsize := auxIntToInt32(v.AuxInt)
+		f := auxToCall(v.Aux)
+		_ = v.Args[3]
+		typ_ := v.Args[0]
+		map_ := v.Args[1]
+		key := v.Args[2]
+		if key.Op != OpSelectN || auxIntToInt64(key.AuxInt) != 0 {
+			break
+		}
+		sbts := key.Args[0]
+		if sbts.Op != OpStaticLECall || len(sbts.Args) != 4 {
+			break
+		}
+		g := auxToCall(sbts.Aux)
+		mem := sbts.Args[3]
+		ptr := sbts.Args[1]
+		len := sbts.Args[2]
+		m := v.Args[3]
+		if m.Op != OpSelectN || auxIntToInt64(m.AuxInt) != 1 || sbts != m.Args[0] || !((isSameCall(f, "runtime.mapaccess1_faststr") || isSameCall(f, "runtime.mapaccess2_faststr") || isSameCall(f, "runtime.mapdelete_faststr")) && isSameCall(g, "runtime.slicebytetostring") && key.Uses == 1 && sbts.Uses == 2 && resetCopy(m, mem) && clobber(sbts) && clobber(key)) {
+			break
+		}
+		v.reset(OpStaticLECall)
+		v.AuxInt = int32ToAuxInt(argsize)
+		v.Aux = callToAux(f)
+		v0 := b.NewValue0(v.Pos, OpStringMake, typ.String)
+		v0.AddArg2(ptr, len)
+		v.AddArg4(typ_, map_, v0, mem)
 		return true
 	}
 	return false

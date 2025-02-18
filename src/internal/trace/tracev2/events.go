@@ -2,15 +2,19 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package go122
+package tracev2
 
-import (
-	"fmt"
-	"internal/trace/event"
-)
-
+// Event types in the trace, args are given in square brackets.
+//
+// Naming scheme:
+//   - Time range event pairs have suffixes "Begin" and "End".
+//   - "Start", "Stop", "Create", "Destroy", "Block", "Unblock"
+//     are suffixes reserved for scheduling resources.
+//
+// NOTE: If you add an event type, make sure you also update all
+// tables in this file!
 const (
-	EvNone event.Type = iota // unused
+	EvNone EventType = iota // unused
 
 	// Structural events.
 	EvEventBatch // start of per-M batch of events [generation, M ID, timestamp, batch length]
@@ -78,17 +82,34 @@ const (
 
 	// Batch event for an experimental batch with a custom format. Added in Go 1.23.
 	EvExperimentalBatch // start of extra data [experiment ID, generation, M ID, timestamp, batch length, batch data...]
+
+	NumEvents
 )
+
+func (ev EventType) Experimental() bool {
+	return ev > MaxEvent && ev < MaxExperimentalEvent
+}
 
 // Experiments.
 const (
 	// AllocFree is the alloc-free events experiment.
-	AllocFree event.Experiment = 1 + iota
+	AllocFree Experiment = 1 + iota
+
+	NumExperiments
 )
+
+func Experiments() []string {
+	return experiments[:]
+}
+
+var experiments = [...]string{
+	NoExperiment: "None",
+	AllocFree:    "AllocFree",
+}
 
 // Experimental events.
 const (
-	_ event.Type = 127 + iota
+	MaxEvent EventType = 127 + iota
 
 	// Experimental events for AllocFree.
 
@@ -106,262 +127,262 @@ const (
 	EvGoroutineStack      // stack exists [timestamp, id, order]
 	EvGoroutineStackAlloc // stack alloc [timestamp, id, order]
 	EvGoroutineStackFree  // stack free [timestamp, id]
+
+	MaxExperimentalEvent
 )
 
-// EventString returns the name of a Go 1.22 event.
-func EventString(typ event.Type) string {
-	if int(typ) < len(specs) {
-		return specs[typ].Name
-	}
-	return fmt.Sprintf("Invalid(%d)", typ)
-}
+const NumExperimentalEvents = MaxExperimentalEvent - MaxEvent
 
-func Specs() []event.Spec {
+// MaxTimedEventArgs is the maximum number of arguments for timed events.
+const MaxTimedEventArgs = 5
+
+func Specs() []EventSpec {
 	return specs[:]
 }
 
-var specs = [...]event.Spec{
+var specs = [...]EventSpec{
 	// "Structural" Events.
-	EvEventBatch: event.Spec{
+	EvEventBatch: {
 		Name: "EventBatch",
 		Args: []string{"gen", "m", "time", "size"},
 	},
-	EvStacks: event.Spec{
+	EvStacks: {
 		Name: "Stacks",
 	},
-	EvStack: event.Spec{
+	EvStack: {
 		Name:    "Stack",
 		Args:    []string{"id", "nframes"},
 		IsStack: true,
 	},
-	EvStrings: event.Spec{
+	EvStrings: {
 		Name: "Strings",
 	},
-	EvString: event.Spec{
+	EvString: {
 		Name:    "String",
 		Args:    []string{"id"},
 		HasData: true,
 	},
-	EvCPUSamples: event.Spec{
+	EvCPUSamples: {
 		Name: "CPUSamples",
 	},
-	EvCPUSample: event.Spec{
+	EvCPUSample: {
 		Name: "CPUSample",
 		Args: []string{"time", "m", "p", "g", "stack"},
 		// N.B. There's clearly a timestamp here, but these Events
 		// are special in that they don't appear in the regular
 		// M streams.
+		StackIDs: []int{4},
 	},
-	EvFrequency: event.Spec{
+	EvFrequency: {
 		Name: "Frequency",
 		Args: []string{"freq"},
 	},
-	EvExperimentalBatch: event.Spec{
+	EvExperimentalBatch: {
 		Name:    "ExperimentalBatch",
 		Args:    []string{"exp", "gen", "m", "time"},
 		HasData: true, // Easier to represent for raw readers.
 	},
 
 	// "Timed" Events.
-	EvProcsChange: event.Spec{
+	EvProcsChange: {
 		Name:         "ProcsChange",
 		Args:         []string{"dt", "procs_value", "stack"},
 		IsTimedEvent: true,
 		StackIDs:     []int{2},
 	},
-	EvProcStart: event.Spec{
+	EvProcStart: {
 		Name:         "ProcStart",
 		Args:         []string{"dt", "p", "p_seq"},
 		IsTimedEvent: true,
 	},
-	EvProcStop: event.Spec{
+	EvProcStop: {
 		Name:         "ProcStop",
 		Args:         []string{"dt"},
 		IsTimedEvent: true,
 	},
-	EvProcSteal: event.Spec{
+	EvProcSteal: {
 		Name:         "ProcSteal",
 		Args:         []string{"dt", "p", "p_seq", "m"},
 		IsTimedEvent: true,
 	},
-	EvProcStatus: event.Spec{
+	EvProcStatus: {
 		Name:         "ProcStatus",
 		Args:         []string{"dt", "p", "pstatus"},
 		IsTimedEvent: true,
 	},
-	EvGoCreate: event.Spec{
+	EvGoCreate: {
 		Name:         "GoCreate",
 		Args:         []string{"dt", "new_g", "new_stack", "stack"},
 		IsTimedEvent: true,
 		StackIDs:     []int{3, 2},
 	},
-	EvGoCreateSyscall: event.Spec{
+	EvGoCreateSyscall: {
 		Name:         "GoCreateSyscall",
 		Args:         []string{"dt", "new_g"},
 		IsTimedEvent: true,
 	},
-	EvGoStart: event.Spec{
+	EvGoStart: {
 		Name:         "GoStart",
 		Args:         []string{"dt", "g", "g_seq"},
 		IsTimedEvent: true,
 	},
-	EvGoDestroy: event.Spec{
+	EvGoDestroy: {
 		Name:         "GoDestroy",
 		Args:         []string{"dt"},
 		IsTimedEvent: true,
 	},
-	EvGoDestroySyscall: event.Spec{
+	EvGoDestroySyscall: {
 		Name:         "GoDestroySyscall",
 		Args:         []string{"dt"},
 		IsTimedEvent: true,
 	},
-	EvGoStop: event.Spec{
+	EvGoStop: {
 		Name:         "GoStop",
 		Args:         []string{"dt", "reason_string", "stack"},
 		IsTimedEvent: true,
 		StackIDs:     []int{2},
 		StringIDs:    []int{1},
 	},
-	EvGoBlock: event.Spec{
+	EvGoBlock: {
 		Name:         "GoBlock",
 		Args:         []string{"dt", "reason_string", "stack"},
 		IsTimedEvent: true,
 		StackIDs:     []int{2},
 		StringIDs:    []int{1},
 	},
-	EvGoUnblock: event.Spec{
+	EvGoUnblock: {
 		Name:         "GoUnblock",
 		Args:         []string{"dt", "g", "g_seq", "stack"},
 		IsTimedEvent: true,
 		StackIDs:     []int{3},
 	},
-	EvGoSyscallBegin: event.Spec{
+	EvGoSyscallBegin: {
 		Name:         "GoSyscallBegin",
 		Args:         []string{"dt", "p_seq", "stack"},
 		IsTimedEvent: true,
 		StackIDs:     []int{2},
 	},
-	EvGoSyscallEnd: event.Spec{
+	EvGoSyscallEnd: {
 		Name:         "GoSyscallEnd",
 		Args:         []string{"dt"},
 		StartEv:      EvGoSyscallBegin,
 		IsTimedEvent: true,
 	},
-	EvGoSyscallEndBlocked: event.Spec{
+	EvGoSyscallEndBlocked: {
 		Name:         "GoSyscallEndBlocked",
 		Args:         []string{"dt"},
 		StartEv:      EvGoSyscallBegin,
 		IsTimedEvent: true,
 	},
-	EvGoStatus: event.Spec{
+	EvGoStatus: {
 		Name:         "GoStatus",
 		Args:         []string{"dt", "g", "m", "gstatus"},
 		IsTimedEvent: true,
 	},
-	EvSTWBegin: event.Spec{
+	EvSTWBegin: {
 		Name:         "STWBegin",
 		Args:         []string{"dt", "kind_string", "stack"},
 		IsTimedEvent: true,
 		StackIDs:     []int{2},
 		StringIDs:    []int{1},
 	},
-	EvSTWEnd: event.Spec{
+	EvSTWEnd: {
 		Name:         "STWEnd",
 		Args:         []string{"dt"},
 		StartEv:      EvSTWBegin,
 		IsTimedEvent: true,
 	},
-	EvGCActive: event.Spec{
+	EvGCActive: {
 		Name:         "GCActive",
 		Args:         []string{"dt", "gc_seq"},
 		IsTimedEvent: true,
 		StartEv:      EvGCBegin,
 	},
-	EvGCBegin: event.Spec{
+	EvGCBegin: {
 		Name:         "GCBegin",
 		Args:         []string{"dt", "gc_seq", "stack"},
 		IsTimedEvent: true,
 		StackIDs:     []int{2},
 	},
-	EvGCEnd: event.Spec{
+	EvGCEnd: {
 		Name:         "GCEnd",
 		Args:         []string{"dt", "gc_seq"},
 		StartEv:      EvGCBegin,
 		IsTimedEvent: true,
 	},
-	EvGCSweepActive: event.Spec{
+	EvGCSweepActive: {
 		Name:         "GCSweepActive",
 		Args:         []string{"dt", "p"},
 		StartEv:      EvGCSweepBegin,
 		IsTimedEvent: true,
 	},
-	EvGCSweepBegin: event.Spec{
+	EvGCSweepBegin: {
 		Name:         "GCSweepBegin",
 		Args:         []string{"dt", "stack"},
 		IsTimedEvent: true,
 		StackIDs:     []int{1},
 	},
-	EvGCSweepEnd: event.Spec{
+	EvGCSweepEnd: {
 		Name:         "GCSweepEnd",
 		Args:         []string{"dt", "swept_value", "reclaimed_value"},
 		StartEv:      EvGCSweepBegin,
 		IsTimedEvent: true,
 	},
-	EvGCMarkAssistActive: event.Spec{
+	EvGCMarkAssistActive: {
 		Name:         "GCMarkAssistActive",
 		Args:         []string{"dt", "g"},
 		StartEv:      EvGCMarkAssistBegin,
 		IsTimedEvent: true,
 	},
-	EvGCMarkAssistBegin: event.Spec{
+	EvGCMarkAssistBegin: {
 		Name:         "GCMarkAssistBegin",
 		Args:         []string{"dt", "stack"},
 		IsTimedEvent: true,
 		StackIDs:     []int{1},
 	},
-	EvGCMarkAssistEnd: event.Spec{
+	EvGCMarkAssistEnd: {
 		Name:         "GCMarkAssistEnd",
 		Args:         []string{"dt"},
 		StartEv:      EvGCMarkAssistBegin,
 		IsTimedEvent: true,
 	},
-	EvHeapAlloc: event.Spec{
+	EvHeapAlloc: {
 		Name:         "HeapAlloc",
 		Args:         []string{"dt", "heapalloc_value"},
 		IsTimedEvent: true,
 	},
-	EvHeapGoal: event.Spec{
+	EvHeapGoal: {
 		Name:         "HeapGoal",
 		Args:         []string{"dt", "heapgoal_value"},
 		IsTimedEvent: true,
 	},
-	EvGoLabel: event.Spec{
+	EvGoLabel: {
 		Name:         "GoLabel",
 		Args:         []string{"dt", "label_string"},
 		IsTimedEvent: true,
 		StringIDs:    []int{1},
 	},
-	EvUserTaskBegin: event.Spec{
+	EvUserTaskBegin: {
 		Name:         "UserTaskBegin",
 		Args:         []string{"dt", "task", "parent_task", "name_string", "stack"},
 		IsTimedEvent: true,
 		StackIDs:     []int{4},
 		StringIDs:    []int{3},
 	},
-	EvUserTaskEnd: event.Spec{
+	EvUserTaskEnd: {
 		Name:         "UserTaskEnd",
 		Args:         []string{"dt", "task", "stack"},
 		IsTimedEvent: true,
 		StackIDs:     []int{2},
 	},
-	EvUserRegionBegin: event.Spec{
+	EvUserRegionBegin: {
 		Name:         "UserRegionBegin",
 		Args:         []string{"dt", "task", "name_string", "stack"},
 		IsTimedEvent: true,
 		StackIDs:     []int{3},
 		StringIDs:    []int{2},
 	},
-	EvUserRegionEnd: event.Spec{
+	EvUserRegionEnd: {
 		Name:         "UserRegionEnd",
 		Args:         []string{"dt", "task", "name_string", "stack"},
 		StartEv:      EvUserRegionBegin,
@@ -369,30 +390,30 @@ var specs = [...]event.Spec{
 		StackIDs:     []int{3},
 		StringIDs:    []int{2},
 	},
-	EvUserLog: event.Spec{
+	EvUserLog: {
 		Name:         "UserLog",
 		Args:         []string{"dt", "task", "key_string", "value_string", "stack"},
 		IsTimedEvent: true,
 		StackIDs:     []int{4},
 		StringIDs:    []int{2, 3},
 	},
-	EvGoSwitch: event.Spec{
+	EvGoSwitch: {
 		Name:         "GoSwitch",
 		Args:         []string{"dt", "g", "g_seq"},
 		IsTimedEvent: true,
 	},
-	EvGoSwitchDestroy: event.Spec{
+	EvGoSwitchDestroy: {
 		Name:         "GoSwitchDestroy",
 		Args:         []string{"dt", "g", "g_seq"},
 		IsTimedEvent: true,
 	},
-	EvGoCreateBlocked: event.Spec{
+	EvGoCreateBlocked: {
 		Name:         "GoCreateBlocked",
 		Args:         []string{"dt", "new_g", "new_stack", "stack"},
 		IsTimedEvent: true,
 		StackIDs:     []int{3, 2},
 	},
-	EvGoStatusStack: event.Spec{
+	EvGoStatusStack: {
 		Name:         "GoStatusStack",
 		Args:         []string{"dt", "g", "m", "gstatus", "stack"},
 		IsTimedEvent: true,
@@ -401,55 +422,55 @@ var specs = [...]event.Spec{
 
 	// Experimental events.
 
-	EvSpan: event.Spec{
+	EvSpan: {
 		Name:         "Span",
 		Args:         []string{"dt", "id", "npages_value", "kindclass"},
 		IsTimedEvent: true,
 		Experiment:   AllocFree,
 	},
-	EvSpanAlloc: event.Spec{
+	EvSpanAlloc: {
 		Name:         "SpanAlloc",
 		Args:         []string{"dt", "id", "npages_value", "kindclass"},
 		IsTimedEvent: true,
 		Experiment:   AllocFree,
 	},
-	EvSpanFree: event.Spec{
+	EvSpanFree: {
 		Name:         "SpanFree",
 		Args:         []string{"dt", "id"},
 		IsTimedEvent: true,
 		Experiment:   AllocFree,
 	},
-	EvHeapObject: event.Spec{
+	EvHeapObject: {
 		Name:         "HeapObject",
 		Args:         []string{"dt", "id", "type"},
 		IsTimedEvent: true,
 		Experiment:   AllocFree,
 	},
-	EvHeapObjectAlloc: event.Spec{
+	EvHeapObjectAlloc: {
 		Name:         "HeapObjectAlloc",
 		Args:         []string{"dt", "id", "type"},
 		IsTimedEvent: true,
 		Experiment:   AllocFree,
 	},
-	EvHeapObjectFree: event.Spec{
+	EvHeapObjectFree: {
 		Name:         "HeapObjectFree",
 		Args:         []string{"dt", "id"},
 		IsTimedEvent: true,
 		Experiment:   AllocFree,
 	},
-	EvGoroutineStack: event.Spec{
+	EvGoroutineStack: {
 		Name:         "GoroutineStack",
 		Args:         []string{"dt", "id", "order"},
 		IsTimedEvent: true,
 		Experiment:   AllocFree,
 	},
-	EvGoroutineStackAlloc: event.Spec{
+	EvGoroutineStackAlloc: {
 		Name:         "GoroutineStackAlloc",
 		Args:         []string{"dt", "id", "order"},
 		IsTimedEvent: true,
 		Experiment:   AllocFree,
 	},
-	EvGoroutineStackFree: event.Spec{
+	EvGoroutineStackFree: {
 		Name:         "GoroutineStackFree",
 		Args:         []string{"dt", "id"},
 		IsTimedEvent: true,
@@ -457,6 +478,9 @@ var specs = [...]event.Spec{
 	},
 }
 
+// GoStatus is the status of a goroutine.
+//
+// They correspond directly to the various goroutine states.
 type GoStatus uint8
 
 const (
@@ -481,6 +505,9 @@ func (s GoStatus) String() string {
 	return "Bad"
 }
 
+// ProcStatus is the status of a P.
+//
+// They mostly correspond to the various P states.
 type ProcStatus uint8
 
 const (
@@ -488,6 +515,16 @@ const (
 	ProcRunning
 	ProcIdle
 	ProcSyscall
+
+	// ProcSyscallAbandoned is a special case of
+	// ProcSyscall. It's used in the very specific case
+	// where the first a P is mentioned in a generation is
+	// part of a ProcSteal event. If that's the first time
+	// it's mentioned, then there's no GoSyscallBegin to
+	// connect the P stealing back to at that point. This
+	// special state indicates this to the parser, so it
+	// doesn't try to find a GoSyscallEndBlocked that
+	// corresponds with the ProcSteal.
 	ProcSyscallAbandoned
 )
 
@@ -504,8 +541,30 @@ func (s ProcStatus) String() string {
 }
 
 const (
-	// Various format-specific constants.
-	MaxBatchSize      = 64 << 10
+	// MaxBatchSize sets the maximum size that a batch can be.
+	//
+	// Directly controls the trace batch size in the runtime.
+	//
+	// NOTE: If this number decreases, the trace format version must change.
+	MaxBatchSize = 64 << 10
+
+	// Maximum number of PCs in a single stack trace.
+	//
+	// Since events contain only stack ID rather than whole stack trace,
+	// we can allow quite large values here.
+	//
+	// Directly controls the maximum number of frames per stack
+	// in the runtime.
+	//
+	// NOTE: If this number decreases, the trace format version must change.
 	MaxFramesPerStack = 128
-	MaxStringSize     = 1 << 10
+
+	// MaxEventTrailerDataSize controls the amount of trailer data that
+	// an event can have in bytes. Must be smaller than MaxBatchSize.
+	// Controls the maximum string size in the trace.
+	//
+	// Directly controls the maximum such value in the runtime.
+	//
+	// NOTE: If this number decreases, the trace format version must change.
+	MaxEventTrailerDataSize = 1 << 10
 )

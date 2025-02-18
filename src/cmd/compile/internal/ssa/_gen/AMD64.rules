@@ -170,7 +170,7 @@
 (Cvt32Fto64F ...) => (CVTSS2SD ...)
 (Cvt64Fto32F ...) => (CVTSD2SS ...)
 
-(Round(32|64)F ...) => (Copy ...)
+(Round(32|64)F ...) => (LoweredRound(32|64)F ...)
 
 // Floating-point min is tricky, as the hardware op isn't right for various special
 // cases (-0 and NaN). We use two hardware ops organized just right to make the
@@ -627,6 +627,21 @@
 (SETB (BT(L|Q)const [0] x)) => (AND(L|Q)const [1] x)
 // x & 1 == 0 -> (x & 1) ^ 1
 (SETAE (BT(L|Q)const [0] x)) => (XORLconst [1] (ANDLconst <typ.Bool> [1] x))
+
+// Shorten compare by rewriting x < 128 as x <= 127, which can be encoded in a single-byte immediate on x86.
+(SETL c:(CMP(Q|L)const [128] x)) && c.Uses == 1 => (SETLE (CMP(Q|L)const [127] x))
+(SETB c:(CMP(Q|L)const [128] x)) && c.Uses == 1 => (SETBE (CMP(Q|L)const [127] x))
+
+// x >= 128 -> x > 127
+(SETGE c:(CMP(Q|L)const [128] x)) && c.Uses == 1 => (SETG (CMP(Q|L)const [127] x))
+(SETAE c:(CMP(Q|L)const [128] x)) && c.Uses == 1 => (SETA (CMP(Q|L)const [127] x))
+
+(CMOVQLT x y c:(CMP(Q|L)const [128] z)) && c.Uses == 1 => (CMOVQLE x y (CMP(Q|L)const [127] z))
+(CMOVLLT x y c:(CMP(Q|L)const [128] z)) && c.Uses == 1 => (CMOVLLE x y (CMP(Q|L)const [127] z))
+(LT          c:(CMP(Q|L)const [128] z) yes no) && c.Uses == 1 => (LE (CMP(Q|L)const [127] z) yes no)
+(CMOVQGE x y c:(CMP(Q|L)const [128] z)) && c.Uses == 1 => (CMOVQGT x y (CMP(Q|L)const [127] z))
+(CMOVLGE x y c:(CMP(Q|L)const [128] z)) && c.Uses == 1 => (CMOVLGT x y (CMP(Q|L)const [127] z))
+(GE          c:(CMP(Q|L)const [128] z) yes no) && c.Uses == 1 => (GT (CMP(Q|L)const [127] z)  yes no)
 
 // Recognize bit tests: a&(1<<b) != 0 for b suitably bounded
 // Note that BTx instructions use the carry bit, so we need to convert tests for zero flag
@@ -1589,6 +1604,9 @@
 (MULSDload x [off] {sym} ptr (MOVQstore [off] {sym} ptr y _)) => (MULSD x (MOVQi2f y))
 (MULSSload x [off] {sym} ptr (MOVLstore [off] {sym} ptr y _)) => (MULSS x (MOVLi2f y))
 
+// Detect FMA
+(ADDS(S|D) (MULS(S|D) x y) z) && buildcfg.GOAMD64 >= 3 && z.Block.Func.useFMA(v) => (VFMADD231S(S|D) z x y)
+
 // Redirect stores to use the other register set.
 (MOVQstore  [off] {sym} ptr (MOVQf2i val) mem) => (MOVSDstore [off] {sym} ptr val mem)
 (MOVLstore  [off] {sym} ptr (MOVLf2i val) mem) => (MOVSSstore [off] {sym} ptr val mem)
@@ -1648,8 +1666,13 @@
 
 (MOVBload [off] {sym} (SB) _) && symIsRO(sym) => (MOVLconst [int32(read8(sym, int64(off)))])
 (MOVWload [off] {sym} (SB) _) && symIsRO(sym) => (MOVLconst [int32(read16(sym, int64(off), config.ctxt.Arch.ByteOrder))])
-(MOVLload [off] {sym} (SB) _) && symIsRO(sym) => (MOVQconst [int64(read32(sym, int64(off), config.ctxt.Arch.ByteOrder))])
+(MOVLload [off] {sym} (SB) _) && symIsRO(sym) => (MOVLconst [int32(read32(sym, int64(off), config.ctxt.Arch.ByteOrder))])
 (MOVQload [off] {sym} (SB) _) && symIsRO(sym) => (MOVQconst [int64(read64(sym, int64(off), config.ctxt.Arch.ByteOrder))])
+(MOVBQSXload [off] {sym} (SB) _) && symIsRO(sym) => (MOVQconst [int64(int8(read8(sym, int64(off))))])
+(MOVWQSXload [off] {sym} (SB) _) && symIsRO(sym) => (MOVQconst [int64(int16(read16(sym, int64(off), config.ctxt.Arch.ByteOrder)))])
+(MOVLQSXload [off] {sym} (SB) _) && symIsRO(sym) => (MOVQconst [int64(int32(read32(sym, int64(off), config.ctxt.Arch.ByteOrder)))])
+
+
 (MOVOstore [dstOff] {dstSym} ptr (MOVOload [srcOff] {srcSym} (SB) _) mem) && symIsRO(srcSym) =>
   (MOVQstore [dstOff+8] {dstSym} ptr (MOVQconst [int64(read64(srcSym, int64(srcOff)+8, config.ctxt.Arch.ByteOrder))])
     (MOVQstore [dstOff] {dstSym} ptr (MOVQconst [int64(read64(srcSym, int64(srcOff), config.ctxt.Arch.ByteOrder))]) mem))

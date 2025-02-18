@@ -712,9 +712,9 @@ func (t *tester) registerTests() {
 	// Check that all crypto packages compile (and test correctly, in longmode) with fips.
 	if t.fipsSupported() {
 		// Test standard crypto packages with fips140=on.
-		t.registerTest("GODEBUG=fips140=on go test crypto/...", &goTest{
+		t.registerTest("GOFIPS140=latest go test crypto/...", &goTest{
 			variant: "gofips140",
-			env:     []string{"GODEBUG=fips140=on"},
+			env:     []string{"GOFIPS140=latest"},
 			pkg:     "crypto/...",
 		})
 
@@ -762,7 +762,7 @@ func (t *tester) registerTests() {
 			})
 		t.registerTest("GODEBUG=gccheckmark=1 runtime",
 			&goTest{
-				variant: "runtime:gcstoptheworld2",
+				variant: "runtime:gccheckmark",
 				timeout: 300 * time.Second,
 				short:   true,
 				env:     []string{"GODEBUG=gccheckmark=1"},

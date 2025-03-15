@@ -585,6 +585,7 @@ var genericOps = []opData{
 	// pseudo-ops for breaking Tuple
 	{name: "Select0", argLength: 1, zeroWidth: true},  // the first component of a tuple
 	{name: "Select1", argLength: 1, zeroWidth: true},  // the second component of a tuple
+	{name: "MakeTuple", argLength: 2},                 // arg0 arg1 are components of a "Tuple" (like the result from a 128bits op).
 	{name: "SelectN", argLength: 1, aux: "Int64"},     // arg0=result, auxint=field index.  Returns the auxint'th member.
 	{name: "SelectNAddr", argLength: 1, aux: "Int64"}, // arg0=result, auxint=field index.  Returns the address of auxint'th member. Used for un-SSA-able result types.
 	{name: "MakeResult", argLength: -1},               // arg0 .. are components of a "Result" (like the result from a Call). The last arg should be memory (like the result from a call).
@@ -663,21 +664,21 @@ var genericOps = []opData{
 	{name: "PrefetchCacheStreamed", argLength: 2, hasSideEffects: true}, // Do non-temporal or streamed prefetch arg0 to cache. arg0=addr, arg1=memory.
 }
 
-//     kind          controls        successors   implicit exit
-//   ----------------------------------------------------------
-//     Exit      [return mem]                []             yes
-//      Ret      [return mem]                []             yes
-//   RetJmp      [return mem]                []             yes
-//    Plain                []            [next]
-//       If   [boolean Value]      [then, else]
-//    First                []   [always, never]
-//    Defer             [mem]  [nopanic, panic]                  (control opcode should be OpStaticCall to runtime.deferproc)
-// JumpTable   [integer Value]  [succ1,succ2,..]
+//     kind          controls          successors   implicit exit
+//   ------------------------------------------------------------
+//     Exit      [return mem]                  []             yes
+//      Ret      [return mem]                  []             yes
+//   RetJmp      [return mem]                  []             yes
+//    Plain                []              [next]
+//       If   [boolean Value]        [then, else]
+//    First                []     [always, never]
+//    Defer             [mem] [nopanic, recovery]                  (control opcode should be OpStaticCall to runtime.defer*)
+// JumpTable   [integer Value]   [succ1,succ2,..]
 
 var genericBlocks = []blockData{
 	{name: "Plain"},                  // a single successor
 	{name: "If", controls: 1},        // if Controls[0] goto Succs[0] else goto Succs[1]
-	{name: "Defer", controls: 1},     // Succs[0]=defer queued, Succs[1]=defer recovered. Controls[0] is call op (of memory type)
+	{name: "Defer", controls: 1},     // Succs[0]=defer queued, Succs[1]=defer recovery branch (jmp performed by runtime). Controls[0] is call op (of memory type).
 	{name: "Ret", controls: 1},       // no successors, Controls[0] value is memory result
 	{name: "RetJmp", controls: 1},    // no successors, Controls[0] value is a tail call
 	{name: "Exit", controls: 1},      // no successors, Controls[0] value generates a panic

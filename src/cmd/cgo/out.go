@@ -1015,13 +1015,18 @@ func (p *Package) writeExports(fgo2, fm, fgcc, fgcch io.Writer) {
 			s.WriteString(p.cgoType(fn.Recv.List[0].Type).C.String())
 			s.WriteString(" recv")
 		}
-		forFieldList(fntype.Params,
-			func(i int, aname string, atype ast.Expr) {
-				if i > 0 || fn.Recv != nil {
-					s.WriteString(", ")
-				}
-				fmt.Fprintf(&s, "%s %s", p.cgoType(atype).C, exportParamName(aname, i))
-			})
+
+		if len(fntype.Params.List) > 0 {
+			forFieldList(fntype.Params,
+				func(i int, aname string, atype ast.Expr) {
+					if i > 0 || fn.Recv != nil {
+						s.WriteString(", ")
+					}
+					fmt.Fprintf(&s, "%s %s", p.cgoType(atype).C, exportParamName(aname, i))
+				})
+		} else {
+			s.WriteString("void")
+		}
 		s.WriteByte(')')
 
 		if len(exp.Doc) > 0 {
@@ -1986,9 +1991,15 @@ typedef size_t GoUintptr;
 typedef float GoFloat32;
 typedef double GoFloat64;
 #ifdef _MSC_VER
+#if !defined(__cplusplus) || _MSVC_LANG <= 201402L
 #include <complex.h>
 typedef _Fcomplex GoComplex64;
 typedef _Dcomplex GoComplex128;
+#else
+#include <complex>
+typedef std::complex<float> GoComplex64;
+typedef std::complex<double> GoComplex128;
+#endif
 #else
 typedef float _Complex GoComplex64;
 typedef double _Complex GoComplex128;

@@ -281,9 +281,25 @@ func main() {
 	}
 	fn := main_main // make an indirect call, as the linker doesn't know the address of the main package when laying down the runtime
 	fn()
+
+	exitHooksRun := false
 	if raceenabled {
 		runExitHooks(0) // run hooks now, since racefini does not return
+		exitHooksRun = true
 		racefini()
+	}
+
+	// Check for C memory leaks if using ASAN and we've made cgo calls,
+	// or if we are running as a library in a C program.
+	// We always make one cgo call, above, to notify_runtime_init_done,
+	// so we ignore that one.
+	// No point in leak checking if no cgo calls, since leak checking
+	// just looks for objects allocated using malloc and friends.
+	// Just checking iscgo doesn't help because asan implies iscgo.
+	if asanenabled && (isarchive || islibrary || NumCgoCall() > 1) {
+		runExitHooks(0) // lsandoleakcheck may not return
+		exitHooksRun = true
+		lsandoleakcheck()
 	}
 
 	// Make racy client program work: if panicking on
@@ -302,7 +318,9 @@ func main() {
 	if panicking.Load() != 0 {
 		gopark(nil, nil, waitReasonPanicWait, traceBlockForever, 1)
 	}
-	runExitHooks(0)
+	if !exitHooksRun {
+		runExitHooks(0)
+	}
 
 	exit(0)
 	for {
@@ -318,6 +336,11 @@ func os_beforeExit(exitCode int) {
 	runExitHooks(exitCode)
 	if exitCode == 0 && raceenabled {
 		racefini()
+	}
+
+	// See comment in main, above.
+	if exitCode == 0 && asanenabled && (isarchive || islibrary || NumCgoCall() > 1) {
+		lsandoleakcheck()
 	}
 }
 
@@ -4399,7 +4422,6 @@ func save(pc, sp, bp uintptr) {
 	gp.sched.pc = pc
 	gp.sched.sp = sp
 	gp.sched.lr = 0
-	gp.sched.ret = 0
 	gp.sched.bp = bp
 	// We need to ensure ctxt is zero, but can't have a write
 	// barrier here. However, it should always already be zero.
@@ -6391,11 +6413,11 @@ func schedtrace(detailed bool) {
 	// Even if we hold schedlock, most data can be changed concurrently.
 	// E.g. (p->m ? p->m->id : -1) can crash if p->m changes from non-nil to nil.
 	for i, pp := range allp {
-		mp := pp.m.ptr()
 		h := atomic.Load(&pp.runqhead)
 		t := atomic.Load(&pp.runqtail)
 		if detailed {
 			print("  P", i, ": status=", pp.status, " schedtick=", pp.schedtick, " syscalltick=", pp.syscalltick, " m=")
+			mp := pp.m.ptr()
 			if mp != nil {
 				print(mp.id)
 			} else {
@@ -6404,16 +6426,26 @@ func schedtrace(detailed bool) {
 			print(" runqsize=", t-h, " gfreecnt=", pp.gFree.n, " timerslen=", len(pp.timers.heap), "\n")
 		} else {
 			// In non-detailed mode format lengths of per-P run queues as:
-			// [len1 len2 len3 len4]
+			// [ len1 len2 len3 len4 ]
 			print(" ")
 			if i == 0 {
-				print("[")
+				print("[ ")
 			}
 			print(t - h)
 			if i == len(allp)-1 {
-				print("]\n")
+				print(" ]")
 			}
 		}
+	}
+
+	if !detailed {
+		// Format per-P schedticks as: schedticks=[ tick1 tick2 tick3 tick4 ].
+		print(" schedticks=[ ")
+		for _, pp := range allp {
+			print(pp.schedtick)
+			print(" ")
+		}
+		print("]\n")
 	}
 
 	if !detailed {

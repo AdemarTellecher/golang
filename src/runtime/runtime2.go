@@ -312,7 +312,6 @@ type gobuf struct {
 	pc   uintptr
 	g    guintptr
 	ctxt unsafe.Pointer
-	ret  uintptr
 	lr   uintptr
 	bp   uintptr // for framepointer-enabled architectures
 }
@@ -528,8 +527,7 @@ const (
 type m struct {
 	g0      *g     // goroutine with scheduling stack
 	morebuf gobuf  // gobuf arg to morestack
-	divmod  uint32 // div/mod denominator for arm - known to liblink
-	_       uint32 // align next field to 8 bytes
+	divmod  uint32 // div/mod denominator for arm - known to liblink (cmd/internal/obj/arm/obj5.go)
 
 	// Fields not known to debuggers.
 	procid          uint64            // for debuggers, but offset not hard-coded
@@ -556,7 +554,7 @@ type m struct {
 	printlock       int8
 	incgo           bool          // m is executing a cgo call
 	isextra         bool          // m is an extra m
-	isExtraInC      bool          // m is an extra m that is not executing Go code
+	isExtraInC      bool          // m is an extra m that does not have any Go frames
 	isExtraInSig    bool          // m is an extra m in a signal handler
 	freeWait        atomic.Uint32 // Whether it is safe to free g0 and delete m (one of freeMRef, freeMStack, freeMWait)
 	needextram      bool
@@ -626,6 +624,7 @@ type m struct {
 	// not in the next-smallest (1792-byte) size class. That leaves the 11 low
 	// bits of muintptr values available for flags, as required for
 	// GOEXPERIMENT=spinbitmutex.
+	_ [goexperiment.SpinbitMutexInt * 64 * goarch.PtrSize / 8]byte
 	_ [goexperiment.SpinbitMutexInt * 700 * (2 - goarch.PtrSize/4)]byte
 }
 

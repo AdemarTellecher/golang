@@ -6,7 +6,6 @@ package amd64
 
 import (
 	"fmt"
-	"internal/buildcfg"
 	"math"
 
 	"cmd/compile/internal/base"
@@ -1090,9 +1089,7 @@ func ssaGenValue(s *ssagen.State, v *ssa.Value) {
 	case ssa.OpAMD64CALLstatic, ssa.OpAMD64CALLtail:
 		if s.ABI == obj.ABI0 && v.Aux.(*ssa.AuxCall).Fn.ABI() == obj.ABIInternal {
 			// zeroing X15 when entering ABIInternal from ABI0
-			if buildcfg.GOOS != "plan9" { // do not use SSE on Plan 9
-				opregreg(s, x86.AXORPS, x86.REG_X15, x86.REG_X15)
-			}
+			opregreg(s, x86.AXORPS, x86.REG_X15, x86.REG_X15)
 			// set G register from TLS
 			getgFromTLS(s, x86.REG_R14)
 		}
@@ -1103,9 +1100,7 @@ func ssaGenValue(s *ssagen.State, v *ssa.Value) {
 		s.Call(v)
 		if s.ABI == obj.ABIInternal && v.Aux.(*ssa.AuxCall).Fn.ABI() == obj.ABI0 {
 			// zeroing X15 when entering ABIInternal from ABI0
-			if buildcfg.GOOS != "plan9" { // do not use SSE on Plan 9
-				opregreg(s, x86.AXORPS, x86.REG_X15, x86.REG_X15)
-			}
+			opregreg(s, x86.AXORPS, x86.REG_X15, x86.REG_X15)
 			// set G register from TLS
 			getgFromTLS(s, x86.REG_R14)
 		}
@@ -1441,24 +1436,7 @@ var nefJumps = [2][2]ssagen.IndexJump{
 
 func ssaGenBlock(s *ssagen.State, b, next *ssa.Block) {
 	switch b.Kind {
-	case ssa.BlockPlain:
-		if b.Succs[0].Block() != next {
-			p := s.Prog(obj.AJMP)
-			p.To.Type = obj.TYPE_BRANCH
-			s.Branches = append(s.Branches, ssagen.Branch{P: p, B: b.Succs[0].Block()})
-		}
-	case ssa.BlockDefer:
-		// defer returns in rax:
-		// 0 if we should continue executing
-		// 1 if we should jump to deferreturn call
-		p := s.Prog(x86.ATESTL)
-		p.From.Type = obj.TYPE_REG
-		p.From.Reg = x86.REG_AX
-		p.To.Type = obj.TYPE_REG
-		p.To.Reg = x86.REG_AX
-		p = s.Prog(x86.AJNE)
-		p.To.Type = obj.TYPE_BRANCH
-		s.Branches = append(s.Branches, ssagen.Branch{P: p, B: b.Succs[1].Block()})
+	case ssa.BlockPlain, ssa.BlockDefer:
 		if b.Succs[0].Block() != next {
 			p := s.Prog(obj.AJMP)
 			p.To.Type = obj.TYPE_BRANCH

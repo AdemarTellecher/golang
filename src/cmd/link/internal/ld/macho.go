@@ -461,9 +461,13 @@ func (ctxt *Link) domacho() {
 		sb.SetType(sym.SMACHOPLT)
 		sb.SetReachable(true)
 
-		s = ctxt.loader.LookupOrCreateSym(".got", 0) // will be __nl_symbol_ptr
+		s = ctxt.loader.LookupOrCreateSym(".got", 0) // will be __got
 		sb = ctxt.loader.MakeSymbolUpdater(s)
-		sb.SetType(sym.SMACHOGOT)
+		if ctxt.UseRelro() {
+			sb.SetType(sym.SMACHORELROSECT)
+		} else {
+			sb.SetType(sym.SMACHOGOT)
+		}
 		sb.SetReachable(true)
 		sb.SetAlign(4)
 
@@ -583,7 +587,7 @@ func machoshbits(ctxt *Link, mseg *MachoSeg, sect *sym.Section, segname string) 
 	}
 
 	if sect.Name == ".got" {
-		msect.name = "__nl_symbol_ptr"
+		msect.name = "__got"
 		msect.flag = S_NON_LAZY_SYMBOL_POINTERS
 		msect.res1 = uint32(ctxt.loader.SymSize(ctxt.ArchSyms.LinkEditPLT) / 4) /* offset into indirect symbol table */
 	}

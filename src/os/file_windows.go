@@ -44,11 +44,13 @@ func (file *File) fd() uintptr {
 // Unlike NewFile, it does not check that h is syscall.InvalidHandle.
 func newFile(h syscall.Handle, name string, kind string) *File {
 	if kind == "file" {
-		var m uint32
-		if syscall.GetConsoleMode(h, &m) == nil {
-			kind = "console"
-		}
-		if t, err := syscall.GetFileType(h); err == nil && t == syscall.FILE_TYPE_PIPE {
+		t, err := syscall.GetFileType(h)
+		if err != nil || t == syscall.FILE_TYPE_CHAR {
+			var m uint32
+			if syscall.GetConsoleMode(h, &m) == nil {
+				kind = "console"
+			}
+		} else if t == syscall.FILE_TYPE_PIPE {
 			kind = "pipe"
 		}
 	}
@@ -162,7 +164,7 @@ func Truncate(name string, size int64) error {
 }
 
 // Remove removes the named file or directory.
-// If there is an error, it will be of type *PathError.
+// If there is an error, it will be of type [*PathError].
 func Remove(name string) error {
 	p, e := syscall.UTF16PtrFromString(fixLongPath(name))
 	if e != nil {

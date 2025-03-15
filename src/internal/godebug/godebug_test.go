@@ -78,7 +78,7 @@ func TestPanicNilRace(t *testing.T) {
 		t.Skip("Skipping test intended for use with -race.")
 	}
 	if os.Getenv("GODEBUG") != "panicnil=1" {
-		cmd := testenv.CleanCmdEnv(testenv.Command(t, os.Args[0], "-test.run=^TestPanicNilRace$", "-test.v", "-test.parallel=2", "-test.count=1"))
+		cmd := testenv.CleanCmdEnv(testenv.Command(t, testenv.Executable(t), "-test.run=^TestPanicNilRace$", "-test.v", "-test.parallel=2", "-test.count=1"))
 		cmd.Env = append(cmd.Env, "GODEBUG=panicnil=1")
 		out, err := cmd.CombinedOutput()
 		t.Logf("output:\n%s", out)
@@ -101,8 +101,8 @@ func TestPanicNilRace(t *testing.T) {
 }
 
 func TestCmdBisect(t *testing.T) {
-	testenv.MustHaveGoBuild(t)
-	out, err := exec.Command("go", "run", "cmd/vendor/golang.org/x/tools/cmd/bisect", "GODEBUG=buggy=1#PATTERN", os.Args[0], "-test.run=^TestBisectTestCase$").CombinedOutput()
+	testenv.MustHaveGoRun(t)
+	out, err := exec.Command(testenv.GoToolPath(t), "run", "cmd/vendor/golang.org/x/tools/cmd/bisect", "GODEBUG=buggy=1#PATTERN", os.Args[0], "-test.run=^TestBisectTestCase$").CombinedOutput()
 	if err != nil {
 		t.Fatalf("exec bisect: %v\n%s", err, out)
 	}

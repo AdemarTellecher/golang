@@ -94,24 +94,12 @@ func (c *Conn) makeClientHello() (*clientHelloMsg, *keySharePrivateKeys, *echCli
 		hello.secureRenegotiation = c.clientFinished[:]
 	}
 
-	preferenceOrder := cipherSuitesPreferenceOrder
-	if !hasAESGCMHardwareSupport {
-		preferenceOrder = cipherSuitesPreferenceOrderNoAES
-	}
-	configCipherSuites := config.cipherSuites()
-	hello.cipherSuites = make([]uint16, 0, len(configCipherSuites))
-
-	for _, suiteId := range preferenceOrder {
-		suite := mutualCipherSuite(configCipherSuites, suiteId)
-		if suite == nil {
-			continue
-		}
-		// Don't advertise TLS 1.2-only cipher suites unless
-		// we're attempting TLS 1.2.
-		if maxVersion < VersionTLS12 && suite.flags&suiteTLS12 != 0 {
-			continue
-		}
-		hello.cipherSuites = append(hello.cipherSuites, suiteId)
+	hello.cipherSuites = config.cipherSuites(hasAESGCMHardwareSupport)
+	// Don't advertise TLS 1.2-only cipher suites unless we're attempting TLS 1.2.
+	if maxVersion < VersionTLS12 {
+		hello.cipherSuites = slices.DeleteFunc(hello.cipherSuites, func(id uint16) bool {
+			return cipherSuiteByID(id).flags&suiteTLS12 != 0
+		})
 	}
 
 	_, err := io.ReadFull(config.rand(), hello.random)
@@ -145,7 +133,7 @@ func (c *Conn) makeClientHello() (*clientHelloMsg, *keySharePrivateKeys, *echCli
 			hello.cipherSuites = nil
 		}
 		if fips140tls.Required() {
-			hello.cipherSuites = append(hello.cipherSuites, defaultCipherSuitesTLS13FIPS...)
+			hello.cipherSuites = append(hello.cipherSuites, allowedCipherSuitesTLS13FIPS...)
 		} else if hasAESGCMHardwareSupport {
 			hello.cipherSuites = append(hello.cipherSuites, defaultCipherSuitesTLS13...)
 		} else {
@@ -271,6 +259,7 @@ func (c *Conn) clientHandshake(ctx context.Context) (err error) {
 	// This may be a renegotiation handshake, in which case some fields
 	// need to be reset.
 	c.didResume = false
+	c.curveID = 0
 
 	hello, keyShareKeys, ech, err := c.makeClientHello()
 	if err != nil {
@@ -462,6 +451,11 @@ func (c *Conn) loadSession(hello *clientHelloMsg) (
 			return nil, nil, nil, nil
 		}
 
+		// FIPS 140-3 requires the use of Extended Master Secret.
+		if !session.extMasterSecret && fips140tls.Required() {
+			return nil, nil, nil, nil
+		}
+
 		hello.sessionTicket = session.ticket
 		return
 	}
@@ -551,6 +545,19 @@ func (c *Conn) pickTLSVersion(serverHello *serverHelloMsg) error {
 // hs.hello, hs.serverHello, and, optionally, hs.session to be set.
 func (hs *clientHandshakeState) handshake() error {
 	c := hs.c
+
+	// If we did not load a session (hs.session == nil), but we did set a
+	// session ID in the transmitted client hello (hs.hello.sessionId != nil),
+	// it means we tried to negotiate TLS 1.3 and sent a random session ID as a
+	// compatibility measure (see RFC 8446, Section 4.1.2).
+	//
+	// Since we're now handshaking for TLS 1.2, if the server echoed the
+	// transmitted ID back to us, we know mischief is afoot: the session ID
+	// was random and can't possibly be recognized by the server.
+	if hs.session == nil && hs.hello.sessionId != nil && bytes.Equal(hs.hello.sessionId, hs.serverHello.sessionId) {
+		c.sendAlert(alertIllegalParameter)
+		return errors.New("tls: server echoed TLS 1.3 compatibility session ID in TLS 1.2")
+	}
 
 	isResume, err := hs.processServerHello()
 	if err != nil {
@@ -781,6 +788,10 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 		hs.masterSecret = extMasterFromPreMasterSecret(c.vers, hs.suite, preMasterSecret,
 			hs.finishedHash.Sum())
 	} else {
+		if fips140tls.Required() {
+			c.sendAlert(alertHandshakeFailure)
+			return errors.New("tls: FIPS 140-3 requires the use of Extended Master Secret")
+		}
 		hs.masterSecret = masterFromPreMasterSecret(c.vers, hs.suite, preMasterSecret,
 			hs.hello.random, hs.serverHello.random)
 	}
@@ -936,10 +947,11 @@ func (hs *clientHandshakeState) processServerHello() (bool, error) {
 	c.verifiedChains = hs.session.verifiedChains
 	c.ocspResponse = hs.session.ocspResponse
 	// Let the ServerHello SCTs override the session SCTs from the original
-	// connection, if any are provided
+	// connection, if any are provided.
 	if len(c.scts) == 0 && len(hs.session.scts) != 0 {
 		c.scts = hs.session.scts
 	}
+	c.curveID = hs.session.curveID
 
 	return true, nil
 }
@@ -1087,7 +1099,7 @@ func (c *Conn) verifyServerCertificate(certificates [][]byte) error {
 	for i, asn1Data := range certificates {
 		cert, err := globalCertCache.newCert(asn1Data)
 		if err != nil {
-			c.sendAlert(alertBadCertificate)
+			c.sendAlert(alertDecodeError)
 			return errors.New("tls: failed to parse certificate from server: " + err.Error())
 		}
 		if cert.cert.PublicKeyAlgorithm == x509.RSA {

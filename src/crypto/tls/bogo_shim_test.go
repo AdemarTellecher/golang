@@ -82,10 +82,10 @@ var (
 
 	expectSessionMiss = flag.Bool("expect-session-miss", false, "")
 
-	_                       = flag.Bool("enable-early-data", false, "")
-	_                       = flag.Bool("on-resume-expect-accept-early-data", false, "")
-	_                       = flag.Bool("expect-ticket-supports-early-data", false, "")
-	onResumeShimWritesFirst = flag.Bool("on-resume-shim-writes-first", false, "")
+	_ = flag.Bool("enable-early-data", false, "")
+	_ = flag.Bool("on-resume-expect-accept-early-data", false, "")
+	_ = flag.Bool("expect-ticket-supports-early-data", false, "")
+	_ = flag.Bool("on-resume-shim-writes-first", false, "")
 
 	advertiseALPN        = flag.String("advertise-alpn", "", "")
 	expectALPN           = flag.String("expect-alpn", "", "")
@@ -98,6 +98,8 @@ var (
 
 	verifyPeer = flag.Bool("verify-peer", false, "")
 	_          = flag.Bool("use-custom-verify-callback", false, "")
+
+	waitForDebugger = flag.Bool("wait-for-debugger", false, "")
 )
 
 type stringSlice []string
@@ -309,6 +311,12 @@ func bogoShim() {
 			}
 		}
 
+		// If we were instructed to wait for a debugger, then send SIGSTOP to ourselves.
+		// When the debugger attaches it will continue the process.
+		if *waitForDebugger {
+			pauseProcess()
+		}
+
 		for {
 			buf := make([]byte, 500)
 			var n int
@@ -324,7 +332,7 @@ func bogoShim() {
 				break
 			}
 		}
-		if err != nil && err != io.EOF {
+		if err != io.EOF {
 			retryErr, ok := err.(*ECHRejectionError)
 			if !ok {
 				log.Fatalf("unexpected error type returned: %v", err)

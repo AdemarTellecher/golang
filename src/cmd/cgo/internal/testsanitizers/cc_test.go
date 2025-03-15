@@ -266,7 +266,12 @@ func compilerSupportsLocation() bool {
 	}
 	switch compiler.name {
 	case "gcc":
-		return compiler.major >= 10
+		// TODO(72752): the asan runtime support library
+		// (libasan.so.6) shipped with GCC 10 has problems digesting
+		// version 5 DWARF produced by the Go toolchain. Disable
+		// location checking if gcc is not sufficiently up to date in
+		// this case.
+		return compiler.major > 10
 	case "clang":
 		// TODO(65606): The clang toolchain on the LUCI builders is not built against
 		// zlib, the ASAN runtime can't actually symbolize its own stack trace. Once
@@ -328,6 +333,12 @@ func compilerRequiredAsanVersion(goos, goarch string) bool {
 	}
 }
 
+// compilerRequiredLsanVersion reports whether the compiler is the
+// version required by Lsan.
+func compilerRequiredLsanVersion(goos, goarch string) bool {
+	return compilerRequiredAsanVersion(goos, goarch)
+}
+
 type compilerCheck struct {
 	once sync.Once
 	err  error
@@ -355,10 +366,18 @@ func configure(sanitizer string) *config {
 		return c
 	}
 
+	sanitizerOpt := sanitizer
+	// For the leak detector, we use "go build -asan",
+	// which implies the address sanitizer.
+	// We may want to adjust this someday.
+	if sanitizer == "leak" {
+		sanitizerOpt = "address"
+	}
+
 	c := &config{
 		sanitizer: sanitizer,
-		cFlags:    []string{"-fsanitize=" + sanitizer},
-		ldFlags:   []string{"-fsanitize=" + sanitizer},
+		cFlags:    []string{"-fsanitize=" + sanitizerOpt},
+		ldFlags:   []string{"-fsanitize=" + sanitizerOpt},
 	}
 
 	if testing.Verbose() {
@@ -377,7 +396,7 @@ func configure(sanitizer string) *config {
 			c.ldFlags = append(c.ldFlags, "-fPIC", "-static-libtsan")
 		}
 
-	case "address":
+	case "address", "leak":
 		c.goFlags = append(c.goFlags, "-asan")
 		// Set the debug mode to print the C stack trace.
 		c.cFlags = append(c.cFlags, "-g")

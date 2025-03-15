@@ -855,7 +855,7 @@ func validMethod(method string) bool {
 	   extension-method = token
 	     token          = 1*<any CHAR except CTLs or separators>
 	*/
-	return len(method) > 0 && strings.IndexFunc(method, isNotToken) == -1
+	return isToken(method)
 }
 
 // NewRequest wraps [NewRequestWithContext] using [context.Background].
@@ -1062,7 +1062,7 @@ func ReadRequest(b *bufio.Reader) (*Request, error) {
 	}
 
 	delete(req.Header, "Host")
-	return req, err
+	return req, nil
 }
 
 // readRequest should be an internal detail,

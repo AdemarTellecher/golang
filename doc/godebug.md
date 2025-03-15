@@ -109,7 +109,9 @@ Only the work module's `go.mod` is consulted for `godebug` directives.
 Any directives in required dependency modules are ignored.
 It is an error to list a `godebug` with an unrecognized setting.
 (Toolchains older than Go 1.23 reject all `godebug` lines, since they do not
-understand `godebug` at all.)
+understand `godebug` at all.) When a workspace is in use, `godebug`
+directives in `go.mod` files are ignored, and `go.work` will be consulted
+for `godebug` directives instead.
 
 The defaults from the `go` and `godebug` lines apply to all main
 packages that are built. For more fine-grained control,
@@ -150,6 +152,22 @@ Packages or programs may define additional settings for internal debugging purpo
 for example,
 see the [runtime documentation](/pkg/runtime#hdr-Environment_Variables)
 and the [go command documentation](/cmd/go#hdr-Build_and_test_caching).
+
+### Go 1.25
+
+Go 1.25 added a new `decoratemappings` setting that controls whether the Go
+runtime annotates OS anonymous memory mappings with context about their
+purpose. These annotations appear in /proc/self/maps and /proc/self/smaps as
+"[anon: Go: ...]". This setting is only used on Linux. For Go 1.25, it defaults
+to `decoratemappings=1`, enabling annotations. Using `decoratemappings=0`
+reverts to the pre-Go 1.25 behavior. This setting is fixed at program startup
+time, and can't be modified by changing the `GODEBUG` environment variable
+after the program starts.
+
+Go 1.25 added a new `embedfollowsymlinks` setting that controls whether the
+Go command will follow symlinks to regular files embedding files.
+The default value `embedfollowsymlinks=0` does not allow following
+symlinks. `embedfollowsymlinks=1` will allow following symlinks.
 
 ### Go 1.24
 
@@ -217,6 +235,8 @@ field by default.
 Go 1.24 enabled the post-quantum key exchange mechanism
 X25519MLKEM768 by default. The default can be reverted using the
 [`tlsmlkem` setting](/pkg/crypto/tls/#Config.CurvePreferences).
+This can be useful when dealing with buggy TLS servers that do not handle large records correctly,
+causing a timeout during the handshake (see [TLS post-quantum TL;DR fail](https://tldr.fail/)).
 Go 1.24 also removed X25519Kyber768Draft00 and the Go 1.23 `tlskyber` setting.
 
 Go 1.24 made [`ParsePKCS1PrivateKey`](/pkg/crypto/x509/#ParsePKCS1PrivateKey)
@@ -253,6 +273,8 @@ Previous versions default to `winreadlinkvolume=0`.
 Go 1.23 enabled the experimental post-quantum key exchange mechanism
 X25519Kyber768Draft00 by default. The default can be reverted using the
 [`tlskyber` setting](/pkg/crypto/tls/#Config.CurvePreferences).
+This can be useful when dealing with buggy TLS servers that do not handle large records correctly,
+causing a timeout during the handshake (see [TLS post-quantum TL;DR fail](https://tldr.fail/)).
 
 Go 1.23 changed the behavior of
 [crypto/x509.ParseCertificate](/pkg/crypto/x509/#ParseCertificate) to reject

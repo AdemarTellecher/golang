@@ -9,6 +9,7 @@ package os
 import (
 	"errors"
 	"sync/atomic"
+	"time"
 )
 
 // root implementation for platforms with no openat.
@@ -115,6 +116,26 @@ func rootChown(r *Root, name string, uid, gid int) error {
 	return nil
 }
 
+func rootLchown(r *Root, name string, uid, gid int) error {
+	if err := checkPathEscapesLstat(r, name); err != nil {
+		return &PathError{Op: "lchownat", Path: name, Err: err}
+	}
+	if err := Lchown(joinPath(r.root.name, name), uid, gid); err != nil {
+		return &PathError{Op: "lchownat", Path: name, Err: underlyingError(err)}
+	}
+	return nil
+}
+
+func rootChtimes(r *Root, name string, atime time.Time, mtime time.Time) error {
+	if err := checkPathEscapes(r, name); err != nil {
+		return &PathError{Op: "chtimesat", Path: name, Err: err}
+	}
+	if err := Chtimes(joinPath(r.root.name, name), atime, mtime); err != nil {
+		return &PathError{Op: "chtimesat", Path: name, Err: underlyingError(err)}
+	}
+	return nil
+}
+
 func rootMkdir(r *Root, name string, perm FileMode) error {
 	if err := checkPathEscapes(r, name); err != nil {
 		return &PathError{Op: "mkdirat", Path: name, Err: err}
@@ -131,6 +152,49 @@ func rootRemove(r *Root, name string) error {
 	}
 	if err := Remove(joinPath(r.root.name, name)); err != nil {
 		return &PathError{Op: "removeat", Path: name, Err: underlyingError(err)}
+	}
+	return nil
+}
+
+func rootReadlink(r *Root, name string) (string, error) {
+	if err := checkPathEscapesLstat(r, name); err != nil {
+		return "", &PathError{Op: "readlinkat", Path: name, Err: err}
+	}
+	name, err := Readlink(joinPath(r.root.name, name))
+	if err != nil {
+		return "", &PathError{Op: "readlinkat", Path: name, Err: underlyingError(err)}
+	}
+	return name, nil
+}
+
+func rootRename(r *Root, oldname, newname string) error {
+	if err := checkPathEscapesLstat(r, oldname); err != nil {
+		return &PathError{Op: "renameat", Path: oldname, Err: err}
+	}
+	if err := checkPathEscapesLstat(r, newname); err != nil {
+		return &PathError{Op: "renameat", Path: newname, Err: err}
+	}
+	err := Rename(joinPath(r.root.name, oldname), joinPath(r.root.name, newname))
+	if err != nil {
+		return &LinkError{"renameat", oldname, newname, underlyingError(err)}
+	}
+	return nil
+}
+
+func rootLink(r *Root, oldname, newname string) error {
+	if err := checkPathEscapesLstat(r, oldname); err != nil {
+		return &PathError{Op: "linkat", Path: oldname, Err: err}
+	}
+	fullOldName := joinPath(r.root.name, oldname)
+	if fs, err := Lstat(fullOldName); err == nil && fs.Mode()&ModeSymlink != 0 {
+		return &PathError{Op: "linkat", Path: oldname, Err: errors.New("cannot create a hard link to a symlink")}
+	}
+	if err := checkPathEscapesLstat(r, newname); err != nil {
+		return &PathError{Op: "linkat", Path: newname, Err: err}
+	}
+	err := Link(fullOldName, joinPath(r.root.name, newname))
+	if err != nil {
+		return &LinkError{"linkat", oldname, newname, underlyingError(err)}
 	}
 	return nil
 }

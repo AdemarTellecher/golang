@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"runtime"
 	"slices"
+	"time"
 )
 
 // OpenInRoot opens the file name in the directory dir.
@@ -54,9 +55,9 @@ func OpenInRoot(dir, name string) (*File, error) {
 //
 //   - When GOOS=windows, file names may not reference Windows reserved device names
 //     such as NUL and COM1.
-//   - On Unix, [Root.Chmod] and [Root.Chown] are vulnerable to a race condition.
+//   - On Unix, [Root.Chmod], [Root.Chown], and [Root.Chtimes] are vulnerable to a race condition.
 //     If the target of the operation is changed from a regular file to a symlink
-//     while the operation is in progress, the operation may be peformed on the link
+//     while the operation is in progress, the operation may be performed on the link
 //     rather than the link target.
 //   - When GOOS=js, Root is vulnerable to TOCTOU (time-of-check-time-of-use)
 //     attacks in symlink validation, and cannot ensure that operations will not
@@ -158,6 +159,18 @@ func (r *Root) Chown(name string, uid, gid int) error {
 	return rootChown(r, name, uid, gid)
 }
 
+// Lchown changes the numeric uid and gid of the named file in the root.
+// See [Lchown] for more details.
+func (r *Root) Lchown(name string, uid, gid int) error {
+	return rootLchown(r, name, uid, gid)
+}
+
+// Chtimes changes the access and modification times of the named file in the root.
+// See [Chtimes] for more details.
+func (r *Root) Chtimes(name string, atime time.Time, mtime time.Time) error {
+	return rootChtimes(r, name, atime, mtime)
+}
+
 // Remove removes the named file or (empty) directory in the root.
 // See [Remove] for more details.
 func (r *Root) Remove(name string) error {
@@ -178,6 +191,31 @@ func (r *Root) Stat(name string) (FileInfo, error) {
 func (r *Root) Lstat(name string) (FileInfo, error) {
 	r.logStat(name)
 	return rootStat(r, name, true)
+}
+
+// Readlink returns the destination of the named symbolic link in the root.
+// See [Readlink] for more details.
+func (r *Root) Readlink(name string) (string, error) {
+	return rootReadlink(r, name)
+}
+
+// Rename renames (moves) oldname to newname.
+// Both paths are relative to the root.
+// See [Rename] for more details.
+func (r *Root) Rename(oldname, newname string) error {
+	return rootRename(r, oldname, newname)
+}
+
+// Link creates newname as a hard link to the oldname file.
+// Both paths are relative to the root.
+// See [Link] for more details.
+//
+// If oldname is a symbolic link, Link creates new link to oldname and not its target.
+// This behavior may differ from that of [Link] on some platforms.
+//
+// When GOOS=js, Link returns an error if oldname is a symbolic link.
+func (r *Root) Link(oldname, newname string) error {
+	return rootLink(r, oldname, newname)
 }
 
 func (r *Root) logOpen(name string) {
@@ -223,7 +261,7 @@ func splitPathInRoot(s string, prefix, suffix []string) (_ []string, err error) 
 		suffix = nil
 	}
 
-	parts := append([]string{}, prefix...)
+	parts := slices.Clone(prefix)
 	i, j := 0, 1
 	for {
 		if j < len(s) && !IsPathSeparator(s[j]) {
@@ -323,7 +361,7 @@ func (rfs *rootFS) Stat(name string) (FileInfo, error) {
 	return r.Stat(name)
 }
 
-// isValidRootFSPath reprots whether name is a valid filename to pass a Root.FS method.
+// isValidRootFSPath reports whether name is a valid filename to pass a Root.FS method.
 func isValidRootFSPath(name string) bool {
 	if !fs.ValidPath(name) {
 		return false

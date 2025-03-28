@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sync"
 	"syscall"
+	"time"
 )
 
 // root implementation for platforms with a function to open a file
@@ -87,6 +88,26 @@ func rootChown(r *Root, name string, uid, gid int) error {
 	return nil
 }
 
+func rootLchown(r *Root, name string, uid, gid int) error {
+	_, err := doInRoot(r, name, func(parent sysfdType, name string) (struct{}, error) {
+		return struct{}{}, lchownat(parent, name, uid, gid)
+	})
+	if err != nil {
+		return &PathError{Op: "lchownat", Path: name, Err: err}
+	}
+	return err
+}
+
+func rootChtimes(r *Root, name string, atime time.Time, mtime time.Time) error {
+	_, err := doInRoot(r, name, func(parent sysfdType, name string) (struct{}, error) {
+		return struct{}{}, chtimesat(parent, name, atime, mtime)
+	})
+	if err != nil {
+		return &PathError{Op: "chtimesat", Path: name, Err: err}
+	}
+	return err
+}
+
 func rootMkdir(r *Root, name string, perm FileMode) error {
 	_, err := doInRoot(r, name, func(parent sysfdType, name string) (struct{}, error) {
 		return struct{}{}, mkdirat(parent, name, perm)
@@ -97,6 +118,16 @@ func rootMkdir(r *Root, name string, perm FileMode) error {
 	return nil
 }
 
+func rootReadlink(r *Root, name string) (string, error) {
+	target, err := doInRoot(r, name, func(parent sysfdType, name string) (string, error) {
+		return readlinkat(parent, name)
+	})
+	if err != nil {
+		return "", &PathError{Op: "readlinkat", Path: name, Err: err}
+	}
+	return target, nil
+}
+
 func rootRemove(r *Root, name string) error {
 	_, err := doInRoot(r, name, func(parent sysfdType, name string) (struct{}, error) {
 		return struct{}{}, removeat(parent, name)
@@ -105,6 +136,32 @@ func rootRemove(r *Root, name string) error {
 		return &PathError{Op: "removeat", Path: name, Err: err}
 	}
 	return nil
+}
+
+func rootRename(r *Root, oldname, newname string) error {
+	_, err := doInRoot(r, oldname, func(oldparent sysfdType, oldname string) (struct{}, error) {
+		_, err := doInRoot(r, newname, func(newparent sysfdType, newname string) (struct{}, error) {
+			return struct{}{}, renameat(oldparent, oldname, newparent, newname)
+		})
+		return struct{}{}, err
+	})
+	if err != nil {
+		return &LinkError{"renameat", oldname, newname, err}
+	}
+	return err
+}
+
+func rootLink(r *Root, oldname, newname string) error {
+	_, err := doInRoot(r, oldname, func(oldparent sysfdType, oldname string) (struct{}, error) {
+		_, err := doInRoot(r, newname, func(newparent sysfdType, newname string) (struct{}, error) {
+			return struct{}{}, linkat(oldparent, oldname, newparent, newname)
+		})
+		return struct{}{}, err
+	})
+	if err != nil {
+		return &LinkError{"linkat", oldname, newname, err}
+	}
+	return err
 }
 
 // doInRoot performs an operation on a path in a Root.
@@ -169,6 +226,9 @@ func doInRoot[T any](r *Root, name string, f func(parent sysfdType, name string)
 				return ret, errPathEscapes
 			}
 			parts = slices.Delete(parts, i-count, end)
+			if len(parts) == 0 {
+				parts = []string{"."}
+			}
 			i = 0
 			if dirfd != rootfd {
 				syscall.Close(dirfd)

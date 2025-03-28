@@ -42,6 +42,8 @@ type ProxyRequest struct {
 // SetURL routes the outbound request to the scheme, host, and base path
 // provided in target. If the target's path is "/base" and the incoming
 // request was for "/dir", the target request will be for "/base/dir".
+// To route requests without joining the incoming path,
+// set r.Out.URL directly.
 //
 // SetURL rewrites the outbound Host header to match the target's host.
 // To preserve the inbound request's Host header (the default behavior
@@ -100,6 +102,13 @@ func (r *ProxyRequest) SetXForwarded() {
 //
 // 1xx responses are forwarded to the client if the underlying
 // transport supports ClientTrace.Got1xxResponse.
+//
+// Hop-by-hop headers (see RFC 9110, section 7.6.1), including
+// Connection, Proxy-Connection, Keep-Alive, Proxy-Authenticate,
+// Proxy-Authorization, TE, Trailer, Transfer-Encoding, and Upgrade,
+// are removed from client requests and backend responses.
+// The Rewrite function may be used to add hop-by-hop headers to the request,
+// and the ModifyResponse function may be used to remove them from the response.
 type ReverseProxy struct {
 	// Rewrite must be a function which modifies
 	// the request into a new request to be sent
@@ -185,6 +194,10 @@ type ReverseProxy struct {
 	// returns a response at all, with any HTTP status code.
 	// If the backend is unreachable, the optional ErrorHandler is
 	// called without any call to ModifyResponse.
+	//
+	// Hop-by-hop headers are removed from the response before
+	// calling ModifyResponse. ModifyResponse may need to remove
+	// additional headers to fit its deployment model, such as Alt-Svc.
 	//
 	// If ModifyResponse returns an error, ErrorHandler is called
 	// with its error value. If ErrorHandler is nil, its default
@@ -799,9 +812,6 @@ func (p *ReverseProxy) handleUpgradeResponse(rw http.ResponseWriter, req *http.R
 	err := <-errc
 	if err == nil {
 		err = <-errc
-	}
-	if err != nil && err != errCopyDone {
-		p.getErrorHandler()(rw, req, fmt.Errorf("can't copy: %v", err))
 	}
 }
 

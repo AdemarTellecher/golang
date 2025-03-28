@@ -18,7 +18,13 @@ func time_runtimeNow() (sec int64, nsec int32, mono int64) {
 	if sg := getg().syncGroup; sg != nil {
 		sec = sg.now / (1000 * 1000 * 1000)
 		nsec = int32(sg.now % (1000 * 1000 * 1000))
-		return sec, nsec, sg.now
+		// Don't return a monotonic time inside a synctest bubble.
+		// If we return a monotonic time based on the fake clock,
+		// arithmetic on times created inside/outside bubbles is confusing.
+		// If we return a monotonic time based on the real monotonic clock,
+		// arithmetic on times created in the same bubble is confusing.
+		// Simplest is to omit the monotonic time within a bubble.
+		return sec, nsec, 0
 	}
 	return time_now()
 }
@@ -30,6 +36,11 @@ func time_runtimeNano() int64 {
 		return gp.syncGroup.now
 	}
 	return nanotime()
+}
+
+//go:linkname time_runtimeIsBubbled time.runtimeIsBubbled
+func time_runtimeIsBubbled() bool {
+	return getg().syncGroup != nil
 }
 
 // A timer is a potentially repeating trigger for calling t.f(t.arg, t.seq).
@@ -1069,7 +1080,13 @@ func (t *timer) unlockAndRun(now int64) {
 		// Note that we are running on a system stack,
 		// so there is no chance of getg().m being reassigned
 		// out from under us while this function executes.
-		tsLocal := &getg().m.p.ptr().timers
+		gp := getg()
+		var tsLocal *timers
+		if t.ts == nil || t.ts.syncGroup == nil {
+			tsLocal = &gp.m.p.ptr().timers
+		} else {
+			tsLocal = &t.ts.syncGroup.timers
+		}
 		if tsLocal.raceCtx == 0 {
 			tsLocal.raceCtx = racegostart(abi.FuncPCABIInternal((*timers).run) + sys.PCQuantum)
 		}
@@ -1121,7 +1138,11 @@ func (t *timer) unlockAndRun(now int64) {
 		if gp.racectx != 0 {
 			throw("unexpected racectx")
 		}
-		gp.racectx = gp.m.p.ptr().timers.raceCtx
+		if ts == nil || ts.syncGroup == nil {
+			gp.racectx = gp.m.p.ptr().timers.raceCtx
+		} else {
+			gp.racectx = ts.syncGroup.timers.raceCtx
+		}
 	}
 
 	if ts != nil {
@@ -1182,6 +1203,11 @@ func (t *timer) unlockAndRun(now int64) {
 	if ts != nil && ts.syncGroup != nil {
 		gp := getg()
 		ts.syncGroup.changegstatus(gp, _Grunning, _Gdead)
+		if raceenabled {
+			// Establish a happens-before between this timer event and
+			// the next synctest.Wait call.
+			racereleasemergeg(gp, ts.syncGroup.raceaddr())
+		}
 		gp.syncGroup = nil
 	}
 

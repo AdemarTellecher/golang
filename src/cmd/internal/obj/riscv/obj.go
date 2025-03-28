@@ -135,10 +135,7 @@ func progedit(ctxt *obj.Link, p *obj.Prog, newprog obj.ProgAlloc) {
 
 	case AMOV:
 		if p.From.Type == obj.TYPE_CONST && p.From.Name == obj.NAME_NONE && p.From.Reg == obj.REG_NONE && int64(int32(p.From.Offset)) != p.From.Offset {
-			ctz := bits.TrailingZeros64(uint64(p.From.Offset))
-			val := p.From.Offset >> ctz
-			if int64(int32(val)) == val {
-				// It's ok. We can handle constants with many trailing zeros.
+			if isShiftConst(p.From.Offset) {
 				break
 			}
 			// Put >32-bit constants in memory and load them.
@@ -769,7 +766,8 @@ func preprocess(ctxt *obj.Link, cursym *obj.LSym, newprog obj.ProgAlloc) {
 			switch p.As {
 			case ABEQ, ABEQZ, ABGE, ABGEU, ABGEZ, ABGT, ABGTU, ABGTZ, ABLE, ABLEU, ABLEZ, ABLT, ABLTU, ABLTZ, ABNE, ABNEZ:
 				if p.To.Type != obj.TYPE_BRANCH {
-					panic("assemble: instruction with branch-like opcode lacks destination")
+					ctxt.Diag("%v: instruction with branch-like opcode lacks destination", p)
+					break
 				}
 				offset := p.To.Target().Pc - p.Pc
 				if offset < -4096 || 4096 <= offset {
@@ -833,6 +831,11 @@ func preprocess(ctxt *obj.Link, cursym *obj.LSym, newprog obj.ProgAlloc) {
 			}
 		}
 
+		// Return if errors have been detected up to this point. Continuing
+		// may lead to duplicate errors being output.
+		if ctxt.Errors > 0 {
+			return
+		}
 		if !rescan {
 			break
 		}
@@ -848,7 +851,10 @@ func preprocess(ctxt *obj.Link, cursym *obj.LSym, newprog obj.ProgAlloc) {
 			case obj.TYPE_BRANCH:
 				p.To.Type, p.To.Offset = obj.TYPE_CONST, p.To.Target().Pc-p.Pc
 			case obj.TYPE_MEM:
-				panic("unhandled type")
+				if ctxt.Errors == 0 {
+					// An error should have already been reported for this instruction
+					panic("unhandled type")
+				}
 			}
 
 		case AJAL:
@@ -2085,8 +2091,8 @@ var instructions = [ALAST & obj.AMask]instructionData{
 	ARORI & obj.AMask:  {enc: iIIEncoding, ternary: true},
 	ARORIW & obj.AMask: {enc: iIIEncoding, ternary: true},
 	ARORW & obj.AMask:  {enc: rIIIEncoding, immForm: ARORIW, ternary: true},
-	AORCB & obj.AMask:  {enc: iIIEncoding},
-	AREV8 & obj.AMask:  {enc: iIIEncoding},
+	AORCB & obj.AMask:  {enc: rIIEncoding},
+	AREV8 & obj.AMask:  {enc: rIIEncoding},
 
 	// 28.4.4: Single-bit Instructions (Zbs)
 	ABCLR & obj.AMask:  {enc: rIIIEncoding, immForm: ABCLRI, ternary: true},
@@ -2212,6 +2218,37 @@ func encodingForAs(as obj.As) (*encoding, error) {
 		return &badEncoding, fmt.Errorf("no encoding for instruction %s", as)
 	}
 	return &insData.enc, nil
+}
+
+// splitShiftConst attempts to split a constant into a signed 12 bit or
+// 32 bit integer, with corresponding logical right shift and/or left shift.
+func splitShiftConst(v int64) (imm int64, lsh int, rsh int, ok bool) {
+	// See if we can reconstruct this value from a signed 32 bit integer.
+	lsh = bits.TrailingZeros64(uint64(v))
+	c := v >> lsh
+	if int64(int32(c)) == c {
+		return c, lsh, 0, true
+	}
+
+	// See if we can reconstruct this value from a small negative constant.
+	rsh = bits.LeadingZeros64(uint64(v))
+	ones := bits.OnesCount64((uint64(v) >> lsh) >> 11)
+	c = signExtend(1<<11|((v>>lsh)&0x7ff), 12)
+	if rsh+ones+lsh+11 == 64 {
+		if lsh > 0 || c != -1 {
+			lsh += rsh
+		}
+		return c, lsh, rsh, true
+	}
+
+	return 0, 0, 0, false
+}
+
+// isShiftConst indicates whether a constant can be represented as a signed
+// 32 bit integer that is left shifted.
+func isShiftConst(v int64) bool {
+	_, lsh, rsh, ok := splitShiftConst(v)
+	return ok && (lsh > 0 || rsh > 0)
 }
 
 type instruction struct {
@@ -2488,17 +2525,34 @@ func instructionsForMOV(p *obj.Prog) []*instruction {
 		// For constants larger than 32 bits in size that have trailing zeros,
 		// use the value with the trailing zeros removed and then use a SLLI
 		// instruction to restore the original constant.
+		//
 		// For example:
-		// 	MOV $0x8000000000000000, X10
+		//     MOV $0x8000000000000000, X10
 		// becomes
-		// 	MOV $1, X10
-		// 	SLLI $63, X10, X10
-		var insSLLI *instruction
+		//     MOV $1, X10
+		//     SLLI $63, X10, X10
+		//
+		// Similarly, we can construct large constants that have a consecutive
+		// sequence of ones from a small negative constant, with a right and/or
+		// left shift.
+		//
+		// For example:
+		//     MOV $0x000fffffffffffda, X10
+		// becomes
+		//     MOV $-19, X10
+		//     SLLI $13, X10
+		//     SRLI $12, X10
+		//
+		var insSLLI, insSRLI *instruction
 		if err := immIFits(ins.imm, 32); err != nil {
-			ctz := bits.TrailingZeros64(uint64(ins.imm))
-			if err := immIFits(ins.imm>>ctz, 32); err == nil {
-				ins.imm = ins.imm >> ctz
-				insSLLI = &instruction{as: ASLLI, rd: ins.rd, rs1: ins.rd, imm: int64(ctz)}
+			if c, lsh, rsh, ok := splitShiftConst(ins.imm); ok {
+				ins.imm = c
+				if lsh > 0 {
+					insSLLI = &instruction{as: ASLLI, rd: ins.rd, rs1: ins.rd, imm: int64(lsh)}
+				}
+				if rsh > 0 {
+					insSRLI = &instruction{as: ASRLI, rd: ins.rd, rs1: ins.rd, imm: int64(rsh)}
+				}
 			}
 		}
 
@@ -2524,6 +2578,9 @@ func instructionsForMOV(p *obj.Prog) []*instruction {
 		}
 		if insSLLI != nil {
 			inss = append(inss, insSLLI)
+		}
+		if insSRLI != nil {
+			inss = append(inss, insSRLI)
 		}
 
 	case p.From.Type == obj.TYPE_CONST && p.To.Type != obj.TYPE_REG:
@@ -2725,6 +2782,47 @@ func instructionsForRotate(p *obj.Prog, ins *instruction) []*instruction {
 	default:
 		p.Ctxt.Diag("%v: unknown rotation", p)
 		return nil
+	}
+}
+
+// instructionsForMinMax returns the machine instructions for an integer minimum or maximum.
+func instructionsForMinMax(p *obj.Prog, ins *instruction) []*instruction {
+	if buildcfg.GORISCV64 >= 22 {
+		// Minimum and maximum instructions are supported natively.
+		return []*instruction{ins}
+	}
+
+	// Generate a move for identical inputs.
+	if ins.rs1 == ins.rs2 {
+		ins.as, ins.rs2, ins.imm = AADDI, obj.REG_NONE, 0
+		return []*instruction{ins}
+	}
+
+	// Ensure that if one of the source registers is the same as the destination,
+	// it is processed first.
+	if ins.rs1 == ins.rd {
+		ins.rs1, ins.rs2 = ins.rs2, ins.rs1
+	}
+	sltReg1, sltReg2 := ins.rs2, ins.rs1
+
+	// MIN -> SLT/SUB/XOR/AND/XOR
+	// MAX -> SLT/SUB/XOR/AND/XOR with swapped inputs to SLT
+	switch ins.as {
+	case AMIN:
+		ins.as = ASLT
+	case AMAX:
+		ins.as, sltReg1, sltReg2 = ASLT, sltReg2, sltReg1
+	case AMINU:
+		ins.as = ASLTU
+	case AMAXU:
+		ins.as, sltReg1, sltReg2 = ASLTU, sltReg2, sltReg1
+	}
+	return []*instruction{
+		&instruction{as: ins.as, rs1: sltReg1, rs2: sltReg2, rd: REG_TMP},
+		&instruction{as: ASUB, rs1: REG_ZERO, rs2: REG_TMP, rd: REG_TMP},
+		&instruction{as: AXOR, rs1: ins.rs1, rs2: ins.rs2, rd: ins.rd},
+		&instruction{as: AAND, rs1: REG_TMP, rs2: ins.rd, rd: ins.rd},
+		&instruction{as: AXOR, rs1: ins.rs1, rs2: ins.rd, rd: ins.rd},
 	}
 }
 
@@ -2976,6 +3074,9 @@ func instructionsForProg(p *obj.Prog) []*instruction {
 		// XNOR -> (NOT (XOR x y))
 		ins.as = AXOR
 		inss = append(inss, &instruction{as: AXORI, rs1: ins.rd, rs2: obj.REG_NONE, rd: ins.rd, imm: -1})
+
+	case AMIN, AMAX, AMINU, AMAXU:
+		inss = instructionsForMinMax(p, ins)
 
 	case AVSETVLI, AVSETIVLI:
 		ins.rs1, ins.rs2 = ins.rs2, obj.REG_NONE

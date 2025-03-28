@@ -37,6 +37,27 @@ func TestNow(t *testing.T) {
 	})
 }
 
+// TestMonotonicClock exercises comparing times from within a bubble
+// with ones from outside the bubble.
+func TestMonotonicClock(t *testing.T) {
+	start := time.Now()
+	synctest.Run(func() {
+		time.Sleep(time.Until(start.Round(0)))
+		if got, want := time.Now().In(time.UTC), start.In(time.UTC); !got.Equal(want) {
+			t.Fatalf("time.Now() = %v, want %v", got, want)
+		}
+
+		wait := 1 * time.Second
+		time.Sleep(wait)
+		if got := time.Since(start); got != wait {
+			t.Fatalf("time.Since(start) = %v, want %v", got, wait)
+		}
+		if got := time.Now().Sub(start); got != wait {
+			t.Fatalf("time.Now().Sub(start) = %v, want %v", got, wait)
+		}
+	})
+}
+
 func TestRunEmpty(t *testing.T) {
 	synctest.Run(func() {
 	})
@@ -434,28 +455,89 @@ func TestWaitGroup(t *testing.T) {
 }
 
 func TestHappensBefore(t *testing.T) {
-	var v int
+	// Use two parallel goroutines accessing different vars to ensure that
+	// we correctly account for multiple goroutines in the bubble.
+	var v1 int
+	var v2 int
 	synctest.Run(func() {
+		v1++ // 1
+		v2++ // 1
+
+		// Wait returns after these goroutines exit.
 		go func() {
-			v++ // 1
+			v1++ // 2
 		}()
-		// Wait creates a happens-before relationship on the above goroutine exiting.
+		go func() {
+			v2++ // 2
+		}()
 		synctest.Wait()
+
+		v1++ // 3
+		v2++ // 3
+
+		// Wait returns after these goroutines block.
+		ch1 := make(chan struct{})
 		go func() {
-			v++ // 2
+			v1++ // 4
+			<-ch1
+		}()
+		go func() {
+			v2++ // 4
+			<-ch1
+		}()
+		synctest.Wait()
+
+		v1++ // 5
+		v2++ // 5
+		close(ch1)
+
+		// Wait returns after these timers run.
+		time.AfterFunc(0, func() {
+			v1++ // 6
+		})
+		time.AfterFunc(0, func() {
+			v2++ // 6
+		})
+		synctest.Wait()
+
+		v1++ // 7
+		v2++ // 7
+
+		// Wait returns after these timer goroutines block.
+		ch2 := make(chan struct{})
+		time.AfterFunc(0, func() {
+			v1++ // 8
+			<-ch2
+		})
+		time.AfterFunc(0, func() {
+			v2++ // 8
+			<-ch2
+		})
+		synctest.Wait()
+
+		v1++ // 9
+		v2++ // 9
+		close(ch2)
+	})
+	// This Run happens after the previous Run returns.
+	synctest.Run(func() {
+		go func() {
+			go func() {
+				v1++ // 10
+			}()
+		}()
+		go func() {
+			go func() {
+				v2++ // 10
+			}()
 		}()
 	})
-	// Run exiting creates a happens-before relationship on goroutines started in the bubble.
-	synctest.Run(func() {
-		v++ // 3
-		// There is a happens-before relationship between the time.AfterFunc call,
-		// and the func running.
-		time.AfterFunc(0, func() {
-			v++ // 4
-		})
-	})
-	if got, want := v, 4; got != want {
-		t.Errorf("v = %v, want %v", got, want)
+	// These tests happen after Run returns.
+	if got, want := v1, 10; got != want {
+		t.Errorf("v1 = %v, want %v", got, want)
+	}
+	if got, want := v2, 10; got != want {
+		t.Errorf("v2 = %v, want %v", got, want)
 	}
 }
 

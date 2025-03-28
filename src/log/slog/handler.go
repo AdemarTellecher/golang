@@ -28,6 +28,8 @@ import (
 //
 // Users of the slog package should not invoke Handler methods directly.
 // They should use the methods of [Logger] instead.
+//
+// Before implementing your own handler, consult https://go.dev/s/slog-handler-guide.
 type Handler interface {
 	// Enabled reports whether the handler handles records at the given level.
 	// The handler ignores records whose level is lower.
@@ -57,6 +59,9 @@ type Handler interface {
 	//   - If a group's key is empty, inline the group's Attrs.
 	//   - If a group has no Attrs (even if it has a non-empty key),
 	//     ignore it.
+	//
+	// [Logger] discards any errors from Handle. Wrap the Handle method to
+	// process any errors from Handlers.
 	Handle(context.Context, Record) error
 
 	// WithAttrs returns a new Handler whose attributes consist of

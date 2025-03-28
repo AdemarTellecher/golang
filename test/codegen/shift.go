@@ -582,13 +582,77 @@ func checkShiftToMask(u []uint64, s []int64) {
 
 func checkLeftShiftWithAddition(a int64, b int64) int64 {
 	// riscv64/rva20u64: "SLLI","ADD"
-	// riscv64/rva22u64: "SH1ADD"
+	// riscv64/rva22u64,riscv64/rva23u64: "SH1ADD"
 	a = a + b<<1
 	// riscv64/rva20u64: "SLLI","ADD"
-	// riscv64/rva22u64: "SH2ADD"
+	// riscv64/rva22u64,riscv64/rva23u64: "SH2ADD"
 	a = a + b<<2
 	// riscv64/rva20u64: "SLLI","ADD"
-	// riscv64/rva22u64: "SH3ADD"
+	// riscv64/rva22u64,riscv64/rva23u64: "SH3ADD"
 	a = a + b<<3
 	return a
+}
+
+//
+// Convert and shift.
+//
+
+func rsh64Uto32U(v uint64) uint32 {
+	x := uint32(v)
+	// riscv64:"MOVWU"
+	if x > 8 {
+		// riscv64:"SRLIW",-"MOVWU",-"SLLI"
+		x >>= 2
+	}
+	return x
+}
+
+func rsh64Uto16U(v uint64) uint16 {
+	x := uint16(v)
+	// riscv64:"MOVHU"
+	if x > 8 {
+		// riscv64:"SLLI","SRLI"
+		x >>= 2
+	}
+	return x
+}
+
+func rsh64Uto8U(v uint64) uint8 {
+	x := uint8(v)
+	// riscv64:"MOVBU"
+	if x > 8 {
+		// riscv64:"SLLI","SRLI"
+		x >>= 2
+	}
+	return x
+}
+
+func rsh64to32(v int64) int32 {
+	x := int32(v)
+	// riscv64:"MOVW"
+	if x > 8 {
+		// riscv64:"SRAIW",-"MOVW",-"SLLI"
+		x >>= 2
+	}
+	return x
+}
+
+func rsh64to16(v int64) int16 {
+	x := int16(v)
+	// riscv64:"MOVH"
+	if x > 8 {
+		// riscv64:"SLLI","SRAI"
+		x >>= 2
+	}
+	return x
+}
+
+func rsh64to8(v int64) int8 {
+	x := int8(v)
+	// riscv64:"MOVB"
+	if x > 8 {
+		// riscv64:"SLLI","SRAI"
+		x >>= 2
+	}
+	return x
 }

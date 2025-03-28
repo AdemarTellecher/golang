@@ -27,7 +27,7 @@ var (
 // SetFileCompletionNotificationModes crashes on some systems (see
 // https://support.microsoft.com/kb/2568167 for details).
 
-var useSetFileCompletionNotificationModes bool // determines is SetFileCompletionNotificationModes is present and safe to use
+var socketCanUseSetFileCompletionNotificationModes bool // determines is SetFileCompletionNotificationModes is present and sockets can safely use it
 
 // checkSetFileCompletionNotificationModes verifies that
 // SetFileCompletionNotificationModes Windows API is present
@@ -50,7 +50,7 @@ func checkSetFileCompletionNotificationModes() {
 			return
 		}
 	}
-	useSetFileCompletionNotificationModes = true
+	socketCanUseSetFileCompletionNotificationModes = true
 }
 
 // InitWSA initiates the use of the Winsock DLL by the current process.
@@ -86,6 +86,17 @@ type operation struct {
 	flags  uint32
 	qty    uint32
 	bufs   []syscall.WSABuf
+}
+
+func (o *operation) overlapped() *syscall.Overlapped {
+	if o.runtimeCtx == 0 {
+		// Don't return the overlapped object if the file handle
+		// doesn't use overlapped I/O. It could be used, but
+		// that would then use the file pointer stored in the
+		// overlapped object rather than the real file pointer.
+		return nil
+	}
+	return &o.o
 }
 
 func (o *operation) InitBuf(buf []byte) {
@@ -142,15 +153,9 @@ func (o *operation) InitMsg(p []byte, oob []byte) {
 	}
 }
 
-// execIO executes a single IO operation o. It submits and cancels
-// IO in the current thread for systems where Windows CancelIoEx API
-// is available. Alternatively, it passes the request onto
-// runtime netpoll and waits for completion or cancels request.
+// execIO executes a single IO operation o.
+// It supports both synchronous and asynchronous IO.
 func execIO(o *operation, submit func(o *operation) error) (int, error) {
-	if o.fd.pd.runtimeCtx == 0 {
-		return 0, errors.New("internal error: polling on unsupported descriptor type")
-	}
-
 	fd := o.fd
 	// Notify runtime netpoll about starting IO.
 	err := fd.pd.prepare(int(o.mode), fd.isFile)
@@ -159,6 +164,12 @@ func execIO(o *operation, submit func(o *operation) error) (int, error) {
 	}
 	// Start IO.
 	err = submit(o)
+	if !fd.pd.pollable() {
+		if err != nil {
+			return 0, err
+		}
+		return int(o.qty), nil
+	}
 	switch err {
 	case nil:
 		// IO completed immediately
@@ -176,7 +187,11 @@ func execIO(o *operation, submit func(o *operation) error) (int, error) {
 	// Wait for our request to complete.
 	err = fd.pd.wait(int(o.mode), fd.isFile)
 	if err == nil {
-		err = windows.WSAGetOverlappedResult(fd.Sysfd, &o.o, &o.qty, false, &o.flags)
+		if fd.isFile {
+			err = windows.GetOverlappedResult(fd.Sysfd, &o.o, &o.qty, false)
+		} else {
+			err = windows.WSAGetOverlappedResult(fd.Sysfd, &o.o, &o.qty, false, &o.flags)
+		}
 		// All is good. Extract our IO results and return.
 		if err != nil {
 			// More data available. Return back the size of received data.
@@ -204,7 +219,11 @@ func execIO(o *operation, submit func(o *operation) error) (int, error) {
 	}
 	// Wait for cancellation to complete.
 	fd.pd.waitCanceled(int(o.mode))
-	err = windows.WSAGetOverlappedResult(fd.Sysfd, &o.o, &o.qty, false, &o.flags)
+	if fd.isFile {
+		err = windows.GetOverlappedResult(fd.Sysfd, &o.o, &o.qty, true)
+	} else {
+		err = windows.WSAGetOverlappedResult(fd.Sysfd, &o.o, &o.qty, false, &o.flags)
+	}
 	if err != nil {
 		if err == syscall.ERROR_OPERATION_ABORTED { // IO Canceled
 			err = netpollErr
@@ -237,6 +256,11 @@ type FD struct {
 	// Used to implement pread/pwrite.
 	l sync.Mutex
 
+	// The file offset for the next read or write.
+	// Overlapped IO operations don't use the real file pointer,
+	// so we need to keep track of the offset ourselves.
+	offset int64
+
 	// For console I/O.
 	lastbits       []byte   // first few bytes of the last incomplete rune in last write
 	readuint16     []uint16 // buffer to hold uint16s obtained with ReadConsole
@@ -263,6 +287,30 @@ type FD struct {
 	kind fileKind
 }
 
+// setOffset sets the offset fields of the overlapped object
+// to the given offset. The fd.l lock must be held.
+//
+// Overlapped IO operations don't update the offset fields
+// of the overlapped object nor the file pointer automatically,
+// so we do that manually here.
+// Note that this is a best effort that only works if the file
+// pointer is completely owned by this operation. We could
+// call seek to allow other processes or other operations on the
+// same file to see the updated offset. That would be inefficient
+// and won't work for concurrent operations anyway. If concurrent
+// operations are needed, then the caller should serialize them
+// using an external mechanism.
+func (fd *FD) setOffset(off int64) {
+	fd.offset = off
+	fd.rop.o.OffsetHigh, fd.rop.o.Offset = uint32(off>>32), uint32(off)
+	fd.wop.o.OffsetHigh, fd.wop.o.Offset = uint32(off>>32), uint32(off)
+}
+
+// addOffset adds the given offset to the current offset.
+func (fd *FD) addOffset(off int) {
+	fd.setOffset(fd.offset + int64(off))
+}
+
 // fileKind describes the kind of file.
 type fileKind byte
 
@@ -281,9 +329,9 @@ var logInitFD func(net string, fd *FD, err error)
 // The net argument is a network name from the net package (e.g., "tcp"),
 // or "file" or "console" or "dir".
 // Set pollable to true if fd should be managed by runtime netpoll.
-func (fd *FD) Init(net string, pollable bool) (string, error) {
+func (fd *FD) Init(net string, pollable bool) error {
 	if initErr != nil {
-		return "", initErr
+		return initErr
 	}
 
 	switch net {
@@ -299,63 +347,42 @@ func (fd *FD) Init(net string, pollable bool) (string, error) {
 		"unix", "unixgram", "unixpacket":
 		fd.kind = kindNet
 	default:
-		return "", errors.New("internal error: unknown network type " + net)
+		return errors.New("internal error: unknown network type " + net)
 	}
 	fd.isFile = fd.kind != kindNet
+	fd.rop.mode = 'r'
+	fd.wop.mode = 'w'
+	fd.rop.fd = fd
+	fd.wop.fd = fd
 
 	var err error
 	if pollable {
-		// Only call init for a network socket.
-		// This means that we don't add files to the runtime poller.
-		// Adding files to the runtime poller can confuse matters
-		// if the user is doing their own overlapped I/O.
-		// See issue #21172.
+		// Note that the runtime poller will ignore I/O completion
+		// notifications not initiated by this package,
+		// so it is safe to add handles owned by the caller.
 		//
-		// In general the code below avoids calling the execIO
-		// function for non-network sockets. If some method does
-		// somehow call execIO, then execIO, and therefore the
-		// calling method, will return an error, because
-		// fd.pd.runtimeCtx will be 0.
+		// If we could not add the handle to the runtime poller,
+		// assume the handle hasn't been opened for overlapped I/O.
 		err = fd.pd.init(fd)
 	}
 	if logInitFD != nil {
 		logInitFD(net, fd, err)
 	}
-	if err != nil {
-		return "", err
+	if !pollable || err != nil {
+		return err
 	}
-	if pollable && useSetFileCompletionNotificationModes {
-		// We do not use events, so we can skip them always.
-		flags := uint8(syscall.FILE_SKIP_SET_EVENT_ON_HANDLE)
-		switch net {
-		case "tcp", "tcp4", "tcp6",
-			"udp", "udp4", "udp6":
-			flags |= syscall.FILE_SKIP_COMPLETION_PORT_ON_SUCCESS
-		}
-		err := syscall.SetFileCompletionNotificationModes(fd.Sysfd, flags)
-		if err == nil && flags&syscall.FILE_SKIP_COMPLETION_PORT_ON_SUCCESS != 0 {
+	if fd.kind != kindNet || socketCanUseSetFileCompletionNotificationModes {
+		// Non-socket handles can use SetFileCompletionNotificationModes without problems.
+		err := syscall.SetFileCompletionNotificationModes(fd.Sysfd,
+			syscall.FILE_SKIP_SET_EVENT_ON_HANDLE|syscall.FILE_SKIP_COMPLETION_PORT_ON_SUCCESS,
+		)
+		if err == nil {
 			fd.skipSyncNotif = true
 		}
 	}
-	// Disable SIO_UDP_CONNRESET behavior.
-	// http://support.microsoft.com/kb/263823
-	switch net {
-	case "udp", "udp4", "udp6":
-		ret := uint32(0)
-		flag := uint32(0)
-		size := uint32(unsafe.Sizeof(flag))
-		err := syscall.WSAIoctl(fd.Sysfd, syscall.SIO_UDP_CONNRESET, (*byte)(unsafe.Pointer(&flag)), size, nil, 0, &ret, nil, 0)
-		if err != nil {
-			return "wsaioctl", err
-		}
-	}
-	fd.rop.mode = 'r'
-	fd.wop.mode = 'w'
-	fd.rop.fd = fd
-	fd.wop.fd = fd
 	fd.rop.runtimeCtx = fd.pd.runtimeCtx
 	fd.wop.runtimeCtx = fd.pd.runtimeCtx
-	return "", nil
+	return nil
 }
 
 func (fd *FD) destroy() error {
@@ -421,12 +448,23 @@ func (fd *FD) Read(buf []byte) (int, error) {
 		case kindConsole:
 			n, err = fd.readConsole(buf)
 		default:
-			n, err = syscall.Read(fd.Sysfd, buf)
-			if fd.kind == kindPipe && err == syscall.ERROR_OPERATION_ABORTED {
-				// Close uses CancelIoEx to interrupt concurrent I/O for pipes.
-				// If the fd is a pipe and the Read was interrupted by CancelIoEx,
-				// we assume it is interrupted by Close.
-				err = ErrFileClosing
+			o := &fd.rop
+			o.InitBuf(buf)
+			n, err = execIO(o, func(o *operation) error {
+				return syscall.ReadFile(o.fd.Sysfd, unsafe.Slice(o.buf.Buf, o.buf.Len), &o.qty, o.overlapped())
+			})
+			fd.addOffset(n)
+			if fd.kind == kindPipe && err != nil {
+				switch err {
+				case syscall.ERROR_BROKEN_PIPE:
+					// Returned by pipes when the other end is closed.
+					err = nil
+				case syscall.ERROR_OPERATION_ABORTED:
+					// Close uses CancelIoEx to interrupt concurrent I/O for pipes.
+					// If the fd is a pipe and the Read was interrupted by CancelIoEx,
+					// we assume it is interrupted by Close.
+					err = ErrFileClosing
+				}
 			}
 		}
 		if err != nil {
@@ -541,27 +579,28 @@ func (fd *FD) Pread(b []byte, off int64) (int, error) {
 
 	fd.l.Lock()
 	defer fd.l.Unlock()
-	curoffset, e := syscall.Seek(fd.Sysfd, 0, io.SeekCurrent)
-	if e != nil {
-		return 0, e
+	curoffset, err := syscall.Seek(fd.Sysfd, 0, io.SeekCurrent)
+	if err != nil {
+		return 0, err
 	}
 	defer syscall.Seek(fd.Sysfd, curoffset, io.SeekStart)
-	o := syscall.Overlapped{
-		OffsetHigh: uint32(off >> 32),
-		Offset:     uint32(off),
-	}
-	var done uint32
-	e = syscall.ReadFile(fd.Sysfd, b, &done, &o)
-	if e != nil {
-		done = 0
-		if e == syscall.ERROR_HANDLE_EOF {
-			e = io.EOF
+	defer fd.setOffset(curoffset)
+	o := &fd.rop
+	o.InitBuf(b)
+	fd.setOffset(off)
+	n, err := execIO(o, func(o *operation) error {
+		return syscall.ReadFile(o.fd.Sysfd, unsafe.Slice(o.buf.Buf, o.buf.Len), &o.qty, &o.o)
+	})
+	if err != nil {
+		n = 0
+		if err == syscall.ERROR_HANDLE_EOF {
+			err = io.EOF
 		}
 	}
 	if len(b) != 0 {
-		e = fd.eofError(int(done), e)
+		err = fd.eofError(n, err)
 	}
-	return int(done), e
+	return n, err
 }
 
 // ReadFrom wraps the recvfrom network call.
@@ -675,7 +714,12 @@ func (fd *FD) Write(buf []byte) (int, error) {
 			case kindConsole:
 				n, err = fd.writeConsole(b)
 			default:
-				n, err = syscall.Write(fd.Sysfd, b)
+				o := &fd.wop
+				o.InitBuf(b)
+				n, err = execIO(o, func(o *operation) error {
+					return syscall.WriteFile(o.fd.Sysfd, unsafe.Slice(o.buf.Buf, o.buf.Len), &o.qty, o.overlapped())
+				})
+				fd.addOffset(n)
 				if fd.kind == kindPipe && err == syscall.ERROR_OPERATION_ABORTED {
 					// Close uses CancelIoEx to interrupt concurrent I/O for pipes.
 					// If the fd is a pipe and the Write was interrupted by CancelIoEx,
@@ -763,11 +807,12 @@ func (fd *FD) Pwrite(buf []byte, off int64) (int, error) {
 
 	fd.l.Lock()
 	defer fd.l.Unlock()
-	curoffset, e := syscall.Seek(fd.Sysfd, 0, io.SeekCurrent)
-	if e != nil {
-		return 0, e
+	curoffset, err := syscall.Seek(fd.Sysfd, 0, io.SeekCurrent)
+	if err != nil {
+		return 0, err
 	}
 	defer syscall.Seek(fd.Sysfd, curoffset, io.SeekStart)
+	defer fd.setOffset(curoffset)
 
 	ntotal := 0
 	for len(buf) > 0 {
@@ -775,15 +820,15 @@ func (fd *FD) Pwrite(buf []byte, off int64) (int, error) {
 		if len(b) > maxRW {
 			b = b[:maxRW]
 		}
-		var n uint32
-		o := syscall.Overlapped{
-			OffsetHigh: uint32(off >> 32),
-			Offset:     uint32(off),
-		}
-		e = syscall.WriteFile(fd.Sysfd, b, &n, &o)
+		o := &fd.wop
+		o.InitBuf(b)
+		fd.setOffset(off)
+		n, err := execIO(o, func(o *operation) error {
+			return syscall.WriteFile(o.fd.Sysfd, unsafe.Slice(o.buf.Buf, o.buf.Len), &o.qty, &o.o)
+		})
 		ntotal += int(n)
-		if e != nil {
-			return ntotal, e
+		if err != nil {
+			return ntotal, err
 		}
 		buf = buf[n:]
 		off += int64(n)
@@ -1013,7 +1058,9 @@ func (fd *FD) Seek(offset int64, whence int) (int64, error) {
 	fd.l.Lock()
 	defer fd.l.Unlock()
 
-	return syscall.Seek(fd.Sysfd, offset, whence)
+	n, err := syscall.Seek(fd.Sysfd, offset, whence)
+	fd.setOffset(n)
+	return n, err
 }
 
 // Fchmod updates syscall.ByHandleFileInformation.Fileattributes when needed.

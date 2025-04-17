@@ -1958,6 +1958,9 @@ func mexit(osStack bool) {
 		mp.gsignal = nil
 	}
 
+	// Free vgetrandom state.
+	vgetrandomDestroy(mp)
+
 	// Remove m from allm.
 	lock(&sched.lock)
 	for pprev := &allm; *pprev != nil; pprev = &(*pprev).alllink {
@@ -2253,7 +2256,7 @@ func allocm(pp *p, fn func(), id int64) *m {
 		unlock(&sched.lock)
 	}
 
-	mp := new(m)
+	mp := &new(mPadded).m
 	mp.mstartfn = fn
 	mcommoninit(mp, id)
 
@@ -3055,7 +3058,7 @@ func handoffp(pp *p) {
 	// findrunnable would return a G to run on pp.
 
 	// if it has local work, start it straight away
-	if !runqempty(pp) || sched.runqsize != 0 {
+	if !runqempty(pp) || !sched.runq.empty() {
 		startm(pp, false, false)
 		return
 	}
@@ -3094,7 +3097,7 @@ func handoffp(pp *p) {
 			notewakeup(&sched.safePointNote)
 		}
 	}
-	if sched.runqsize != 0 {
+	if !sched.runq.empty() {
 		unlock(&sched.lock)
 		startm(pp, false, false)
 		return
@@ -3340,9 +3343,9 @@ top:
 	// Check the global runnable queue once in a while to ensure fairness.
 	// Otherwise two goroutines can completely occupy the local runqueue
 	// by constantly respawning each other.
-	if pp.schedtick%61 == 0 && sched.runqsize > 0 {
+	if pp.schedtick%61 == 0 && !sched.runq.empty() {
 		lock(&sched.lock)
-		gp := globrunqget(pp, 1)
+		gp := globrunqget()
 		unlock(&sched.lock)
 		if gp != nil {
 			return gp, false, false
@@ -3365,11 +3368,14 @@ top:
 	}
 
 	// global runq
-	if sched.runqsize != 0 {
+	if !sched.runq.empty() {
 		lock(&sched.lock)
-		gp := globrunqget(pp, 0)
+		gp, q := globrunqgetbatch(int32(len(pp.runq)) / 2)
 		unlock(&sched.lock)
 		if gp != nil {
+			if runqputbatch(pp, &q); !q.empty() {
+				throw("Couldn't put Gs into empty local runq")
+			}
 			return gp, false, false
 		}
 	}
@@ -3479,9 +3485,15 @@ top:
 		unlock(&sched.lock)
 		goto top
 	}
-	if sched.runqsize != 0 {
-		gp := globrunqget(pp, 0)
+	if !sched.runq.empty() {
+		gp, q := globrunqgetbatch(int32(len(pp.runq)) / 2)
 		unlock(&sched.lock)
+		if gp == nil {
+			throw("global runq empty with non-zero runqsize")
+		}
+		if runqputbatch(pp, &q); !q.empty() {
+			throw("Couldn't put Gs into empty local runq")
+		}
 		return gp, false, false
 	}
 	if !mp.spinning && sched.needspinning.Load() == 1 {
@@ -3551,14 +3563,17 @@ top:
 		// Check global and P runqueues again.
 
 		lock(&sched.lock)
-		if sched.runqsize != 0 {
+		if !sched.runq.empty() {
 			pp, _ := pidlegetSpinning(0)
 			if pp != nil {
-				gp := globrunqget(pp, 0)
+				gp, q := globrunqgetbatch(int32(len(pp.runq)) / 2)
+				unlock(&sched.lock)
 				if gp == nil {
 					throw("global runq empty with non-zero runqsize")
 				}
-				unlock(&sched.lock)
+				if runqputbatch(pp, &q); !q.empty() {
+					throw("Couldn't put Gs into empty local runq")
+				}
 				acquirep(pp)
 				mp.becomeSpinning()
 				return gp, false, false
@@ -3673,7 +3688,7 @@ top:
 // background work loops, like idle GC. It checks a subset of the
 // conditions checked by the actual scheduler.
 func pollWork() bool {
-	if sched.runqsize != 0 {
+	if !sched.runq.empty() {
 		return true
 	}
 	p := getg().m.p.ptr()
@@ -3920,13 +3935,10 @@ func injectglist(glist *gList) {
 
 	// Mark all the goroutines as runnable before we put them
 	// on the run queues.
-	head := glist.head.ptr()
 	var tail *g
-	qsize := 0
 	trace := traceAcquire()
-	for gp := head; gp != nil; gp = gp.schedlink.ptr() {
+	for gp := glist.head.ptr(); gp != nil; gp = gp.schedlink.ptr() {
 		tail = gp
-		qsize++
 		casgstatus(gp, _Gwaiting, _Grunnable)
 		if trace.ok() {
 			trace.GoUnpark(gp, 0)
@@ -3937,13 +3949,11 @@ func injectglist(glist *gList) {
 	}
 
 	// Turn the gList into a gQueue.
-	var q gQueue
-	q.head.set(head)
-	q.tail.set(tail)
+	q := gQueue{glist.head, tail.guintptr(), glist.size}
 	*glist = gList{}
 
-	startIdle := func(n int) {
-		for i := 0; i < n; i++ {
+	startIdle := func(n int32) {
+		for ; n > 0; n-- {
 			mp := acquirem() // See comment in startm.
 			lock(&sched.lock)
 
@@ -3962,32 +3972,32 @@ func injectglist(glist *gList) {
 
 	pp := getg().m.p.ptr()
 	if pp == nil {
+		n := q.size
 		lock(&sched.lock)
-		globrunqputbatch(&q, int32(qsize))
+		globrunqputbatch(&q)
 		unlock(&sched.lock)
-		startIdle(qsize)
+		startIdle(n)
 		return
 	}
 
-	npidle := int(sched.npidle.Load())
-	var (
-		globq gQueue
-		n     int
-	)
-	for n = 0; n < npidle && !q.empty(); n++ {
+	var globq gQueue
+	npidle := sched.npidle.Load()
+	for ; npidle > 0 && !q.empty(); npidle-- {
 		g := q.pop()
 		globq.pushBack(g)
 	}
-	if n > 0 {
+	if !globq.empty() {
+		n := globq.size
 		lock(&sched.lock)
-		globrunqputbatch(&globq, int32(n))
+		globrunqputbatch(&globq)
 		unlock(&sched.lock)
 		startIdle(n)
-		qsize -= n
 	}
 
-	if !q.empty() {
-		runqputbatch(pp, &q, qsize)
+	if runqputbatch(pp, &q); !q.empty() {
+		lock(&sched.lock)
+		globrunqputbatch(&q)
+		unlock(&sched.lock)
 	}
 
 	// Some P's might have become idle after we loaded `sched.npidle`
@@ -4069,7 +4079,6 @@ top:
 			unlock(&sched.lock)
 		} else {
 			sched.disable.runnable.pushBack(gp)
-			sched.disable.n++
 			unlock(&sched.lock)
 			goto top
 		}
@@ -5213,27 +5222,22 @@ func gfput(pp *p, gp *g) {
 	}
 
 	pp.gFree.push(gp)
-	pp.gFree.n++
-	if pp.gFree.n >= 64 {
+	if pp.gFree.size >= 64 {
 		var (
-			inc      int32
 			stackQ   gQueue
 			noStackQ gQueue
 		)
-		for pp.gFree.n >= 32 {
+		for pp.gFree.size >= 32 {
 			gp := pp.gFree.pop()
-			pp.gFree.n--
 			if gp.stack.lo == 0 {
 				noStackQ.push(gp)
 			} else {
 				stackQ.push(gp)
 			}
-			inc++
 		}
 		lock(&sched.gFree.lock)
 		sched.gFree.noStack.pushAll(noStackQ)
 		sched.gFree.stack.pushAll(stackQ)
-		sched.gFree.n += inc
 		unlock(&sched.gFree.lock)
 	}
 }
@@ -5245,7 +5249,7 @@ retry:
 	if pp.gFree.empty() && (!sched.gFree.stack.empty() || !sched.gFree.noStack.empty()) {
 		lock(&sched.gFree.lock)
 		// Move a batch of free Gs to the P.
-		for pp.gFree.n < 32 {
+		for pp.gFree.size < 32 {
 			// Prefer Gs with stacks.
 			gp := sched.gFree.stack.pop()
 			if gp == nil {
@@ -5254,9 +5258,7 @@ retry:
 					break
 				}
 			}
-			sched.gFree.n--
 			pp.gFree.push(gp)
-			pp.gFree.n++
 		}
 		unlock(&sched.gFree.lock)
 		goto retry
@@ -5265,7 +5267,6 @@ retry:
 	if gp == nil {
 		return nil
 	}
-	pp.gFree.n--
 	if gp.stack.lo != 0 && gp.stack.hi-gp.stack.lo != uintptr(startingStackSize) {
 		// Deallocate old stack. We kept it in gfput because it was the
 		// right size when the goroutine was put on the free list, but
@@ -5300,24 +5301,20 @@ retry:
 // Purge all cached G's from gfree list to the global list.
 func gfpurge(pp *p) {
 	var (
-		inc      int32
 		stackQ   gQueue
 		noStackQ gQueue
 	)
 	for !pp.gFree.empty() {
 		gp := pp.gFree.pop()
-		pp.gFree.n--
 		if gp.stack.lo == 0 {
 			noStackQ.push(gp)
 		} else {
 			stackQ.push(gp)
 		}
-		inc++
 	}
 	lock(&sched.gFree.lock)
 	sched.gFree.noStack.pushAll(noStackQ)
 	sched.gFree.stack.pushAll(stackQ)
-	sched.gFree.n += inc
 	unlock(&sched.gFree.lock)
 }
 
@@ -5433,9 +5430,9 @@ func badunlockosthread() {
 }
 
 func gcount() int32 {
-	n := int32(atomic.Loaduintptr(&allglen)) - sched.gFree.n - sched.ngsys.Load()
+	n := int32(atomic.Loaduintptr(&allglen)) - sched.gFree.stack.size - sched.gFree.noStack.size - sched.ngsys.Load()
 	for _, pp := range allp {
-		n -= pp.gFree.n
+		n -= pp.gFree.size
 	}
 
 	// All these variables can be changed concurrently, so the result can be inconsistent.
@@ -6405,7 +6402,7 @@ func schedtrace(detailed bool) {
 	}
 
 	lock(&sched.lock)
-	print("SCHED ", (now-starttime)/1e6, "ms: gomaxprocs=", gomaxprocs, " idleprocs=", sched.npidle.Load(), " threads=", mcount(), " spinningthreads=", sched.nmspinning.Load(), " needspinning=", sched.needspinning.Load(), " idlethreads=", sched.nmidle, " runqueue=", sched.runqsize)
+	print("SCHED ", (now-starttime)/1e6, "ms: gomaxprocs=", gomaxprocs, " idleprocs=", sched.npidle.Load(), " threads=", mcount(), " spinningthreads=", sched.nmspinning.Load(), " needspinning=", sched.needspinning.Load(), " idlethreads=", sched.nmidle, " runqueue=", sched.runq.size)
 	if detailed {
 		print(" gcwaiting=", sched.gcwaiting.Load(), " nmidlelocked=", sched.nmidlelocked, " stopwait=", sched.stopwait, " sysmonwait=", sched.sysmonwait.Load(), "\n")
 	}
@@ -6423,7 +6420,7 @@ func schedtrace(detailed bool) {
 			} else {
 				print("nil")
 			}
-			print(" runqsize=", t-h, " gfreecnt=", pp.gFree.n, " timerslen=", len(pp.timers.heap), "\n")
+			print(" runqsize=", t-h, " gfreecnt=", pp.gFree.size, " timerslen=", len(pp.timers.heap), "\n")
 		} else {
 			// In non-detailed mode format lengths of per-P run queues as:
 			// [ len1 len2 len3 len4 ]
@@ -6507,9 +6504,8 @@ func schedEnableUser(enable bool) {
 	}
 	sched.disable.user = !enable
 	if enable {
-		n := sched.disable.n
-		sched.disable.n = 0
-		globrunqputbatch(&sched.disable.runnable, n)
+		n := sched.disable.runnable.size
+		globrunqputbatch(&sched.disable.runnable)
 		unlock(&sched.lock)
 		for ; n != 0 && sched.npidle.Load() != 0; n-- {
 			startm(nil, false, false)
@@ -6571,7 +6567,6 @@ func globrunqput(gp *g) {
 	assertLockHeld(&sched.lock)
 
 	sched.runq.pushBack(gp)
-	sched.runqsize++
 }
 
 // Put gp at the head of the global runnable queue.
@@ -6583,7 +6578,6 @@ func globrunqputhead(gp *g) {
 	assertLockHeld(&sched.lock)
 
 	sched.runq.push(gp)
-	sched.runqsize++
 }
 
 // Put a batch of runnable goroutines on the global runnable queue.
@@ -6592,43 +6586,44 @@ func globrunqputhead(gp *g) {
 // May run during STW, so write barriers are not allowed.
 //
 //go:nowritebarrierrec
-func globrunqputbatch(batch *gQueue, n int32) {
+func globrunqputbatch(batch *gQueue) {
 	assertLockHeld(&sched.lock)
 
 	sched.runq.pushBackAll(*batch)
-	sched.runqsize += n
 	*batch = gQueue{}
+}
+
+// Try get a single G from the global runnable queue.
+// sched.lock must be held.
+func globrunqget() *g {
+	assertLockHeld(&sched.lock)
+
+	if sched.runq.size == 0 {
+		return nil
+	}
+
+	return sched.runq.pop()
 }
 
 // Try get a batch of G's from the global runnable queue.
 // sched.lock must be held.
-func globrunqget(pp *p, max int32) *g {
+func globrunqgetbatch(n int32) (gp *g, q gQueue) {
 	assertLockHeld(&sched.lock)
 
-	if sched.runqsize == 0 {
-		return nil
+	if sched.runq.size == 0 {
+		return
 	}
 
-	n := sched.runqsize/gomaxprocs + 1
-	if n > sched.runqsize {
-		n = sched.runqsize
-	}
-	if max > 0 && n > max {
-		n = max
-	}
-	if n > int32(len(pp.runq))/2 {
-		n = int32(len(pp.runq)) / 2
-	}
+	n = min(n, sched.runq.size, sched.runq.size/gomaxprocs+1)
 
-	sched.runqsize -= n
-
-	gp := sched.runq.pop()
+	gp = sched.runq.pop()
 	n--
+
 	for ; n > 0; n-- {
 		gp1 := sched.runq.pop()
-		runqput(pp, gp1, false)
+		q.pushBack(gp1)
 	}
-	return gp
+	return
 }
 
 // pMask is an atomic bitstring with one bit per P.
@@ -6845,22 +6840,23 @@ func runqputslow(pp *p, gp *g, h, t uint32) bool {
 	for i := uint32(0); i < n; i++ {
 		batch[i].schedlink.set(batch[i+1])
 	}
-	var q gQueue
-	q.head.set(batch[0])
-	q.tail.set(batch[n])
+
+	q := gQueue{batch[0].guintptr(), batch[n].guintptr(), int32(n + 1)}
 
 	// Now put the batch on global queue.
 	lock(&sched.lock)
-	globrunqputbatch(&q, int32(n+1))
+	globrunqputbatch(&q)
 	unlock(&sched.lock)
 	return true
 }
 
 // runqputbatch tries to put all the G's on q on the local runnable queue.
-// If the queue is full, they are put on the global queue; in that case
-// this will temporarily acquire the scheduler lock.
+// If the local runq is full the input queue still contains unqueued Gs.
 // Executed only by the owner P.
-func runqputbatch(pp *p, q *gQueue, qsize int) {
+func runqputbatch(pp *p, q *gQueue) {
+	if q.empty() {
+		return
+	}
 	h := atomic.LoadAcq(&pp.runqhead)
 	t := pp.runqtail
 	n := uint32(0)
@@ -6870,7 +6866,6 @@ func runqputbatch(pp *p, q *gQueue, qsize int) {
 		t++
 		n++
 	}
-	qsize -= int(n)
 
 	if randomizeScheduler {
 		off := func(o uint32) uint32 {
@@ -6883,11 +6878,8 @@ func runqputbatch(pp *p, q *gQueue, qsize int) {
 	}
 
 	atomic.StoreRel(&pp.runqtail, t)
-	if !q.empty() {
-		lock(&sched.lock)
-		globrunqputbatch(q, int32(qsize))
-		unlock(&sched.lock)
-	}
+
+	return
 }
 
 // Get g from local runnable queue.
@@ -6919,11 +6911,10 @@ func runqget(pp *p) (gp *g, inheritTime bool) {
 
 // runqdrain drains the local runnable queue of pp and returns all goroutines in it.
 // Executed only by the owner P.
-func runqdrain(pp *p) (drainQ gQueue, n uint32) {
+func runqdrain(pp *p) (drainQ gQueue) {
 	oldNext := pp.runnext
 	if oldNext != 0 && pp.runnext.cas(oldNext, 0) {
 		drainQ.pushBack(oldNext.ptr())
-		n++
 	}
 
 retry:
@@ -6951,7 +6942,6 @@ retry:
 	for i := uint32(0); i < qn; i++ {
 		gp := pp.runq[(h+i)%uint32(len(pp.runq))].ptr()
 		drainQ.pushBack(gp)
-		n++
 	}
 	return
 }
@@ -7039,6 +7029,7 @@ func runqsteal(pp, p2 *p, stealRunNextG bool) *g {
 type gQueue struct {
 	head guintptr
 	tail guintptr
+	size int32
 }
 
 // empty reports whether q is empty.
@@ -7053,6 +7044,7 @@ func (q *gQueue) push(gp *g) {
 	if q.tail == 0 {
 		q.tail.set(gp)
 	}
+	q.size++
 }
 
 // pushBack adds gp to the tail of q.
@@ -7064,6 +7056,7 @@ func (q *gQueue) pushBack(gp *g) {
 		q.head.set(gp)
 	}
 	q.tail.set(gp)
+	q.size++
 }
 
 // pushBackAll adds all Gs in q2 to the tail of q. After this q2 must
@@ -7079,6 +7072,7 @@ func (q *gQueue) pushBackAll(q2 gQueue) {
 		q.head = q2.head
 	}
 	q.tail = q2.tail
+	q.size += q2.size
 }
 
 // pop removes and returns the head of queue q. It returns nil if
@@ -7090,13 +7084,14 @@ func (q *gQueue) pop() *g {
 		if q.head == 0 {
 			q.tail = 0
 		}
+		q.size--
 	}
 	return gp
 }
 
 // popList takes all Gs in q and returns them as a gList.
 func (q *gQueue) popList() gList {
-	stack := gList{q.head}
+	stack := gList{q.head, q.size}
 	*q = gQueue{}
 	return stack
 }
@@ -7105,6 +7100,7 @@ func (q *gQueue) popList() gList {
 // on one gQueue or gList at a time.
 type gList struct {
 	head guintptr
+	size int32
 }
 
 // empty reports whether l is empty.
@@ -7116,13 +7112,15 @@ func (l *gList) empty() bool {
 func (l *gList) push(gp *g) {
 	gp.schedlink = l.head
 	l.head.set(gp)
+	l.size++
 }
 
-// pushAll prepends all Gs in q to l.
+// pushAll prepends all Gs in q to l. After this q must not be used.
 func (l *gList) pushAll(q gQueue) {
 	if !q.empty() {
 		q.tail.ptr().schedlink = l.head
 		l.head = q.head
+		l.size += q.size
 	}
 }
 
@@ -7131,6 +7129,7 @@ func (l *gList) pop() *g {
 	gp := l.head.ptr()
 	if gp != nil {
 		l.head = gp.schedlink
+		l.size--
 	}
 	return gp
 }

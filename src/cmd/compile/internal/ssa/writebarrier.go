@@ -593,10 +593,7 @@ func (f *Func) computeZeroMap(select1 []*Value) map[ID]ZeroRegion {
 					continue
 				}
 
-				nptr := v.Type.Elem().Size() / ptrSize
-				if nptr > 64 {
-					nptr = 64
-				}
+				nptr := min(64, v.Type.Elem().Size()/ptrSize)
 				zeroes[mem.ID] = ZeroRegion{base: v, mask: 1<<uint(nptr) - 1}
 			}
 		}
@@ -640,17 +637,12 @@ func (f *Func) computeZeroMap(select1 []*Value) map[ID]ZeroRegion {
 					size += ptrSize - d
 				}
 				// Clip to the 64 words that we track.
-				min := off
-				max := off + size
-				if min < 0 {
-					min = 0
-				}
-				if max > 64*ptrSize {
-					max = 64 * ptrSize
-				}
+				minimum := max(off, 0)
+				maximum := min(off+size, 64*ptrSize)
+
 				// Clear bits for parts that we are writing (and hence
 				// will no longer necessarily be zero).
-				for i := min; i < max; i += ptrSize {
+				for i := minimum; i < maximum; i += ptrSize {
 					bit := i / ptrSize
 					z.mask &^= 1 << uint(bit)
 				}
@@ -709,11 +701,6 @@ func wbcall(pos src.XPos, b *Block, fn *obj.LSym, sp, mem *Value, args ...*Value
 	call.AddArgs(args...)
 	call.AuxInt = int64(nargs) * typ.Size()
 	return b.NewValue1I(pos, OpSelectN, types.TypeMem, 0, call)
-}
-
-// round to a multiple of r, r is a power of 2.
-func round(o int64, r int64) int64 {
-	return (o + r - 1) &^ (r - 1)
 }
 
 // IsStackAddr reports whether v is known to be an address of a stack slot.

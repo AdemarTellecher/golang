@@ -2,8 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Tests is a helper package to avoid cyclic dependency between go/ast and go/parser.
-package tests
+package ast_test
 
 import (
 	"go/ast"
@@ -79,4 +78,45 @@ import (
 			t.Fatalf("len(f.Imports) = %v; want = 3", len(f.Imports))
 		}
 	})
+}
+
+func TestIssue69183(t *testing.T) {
+	const src = `package A
+import (
+"a"//a
+"a")
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "test.go", src, parser.ParseComments|parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ast.SortImports(fset, f) // should not panic
+}
+
+func TestSortImportsSameLastLine(t *testing.T) {
+	const src = `package A
+import (
+"a"//a
+"a")
+func a() {}
+`
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "test.go", src, parser.ParseComments|parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ast.SortImports(fset, f)
+	fd := f.Decls[1].(*ast.FuncDecl)
+	fdPos := fset.Position(fd.Pos())
+	// After SortImports, the Position of the func, should still be at Column == 1.
+	// This is related to the issue: https://go.dev/issue/69183, we were merging lines
+	// incorrectly, which caused the position to be Column = 6, Line = 4.
+	if fdPos.Column != 1 {
+		t.Errorf("invalid fdPos.Column = %v; want = 1", fdPos.Column)
+	}
+	if fdPos.Line != 5 {
+		t.Errorf("invalid fdPos.Line = %v; want = 5", fdPos.Line)
+	}
 }

@@ -131,7 +131,8 @@ func rootOpenFileNolog(root *Root, name string, flag int, perm FileMode) (*File,
 	if err != nil {
 		return nil, &PathError{Op: "openat", Path: name, Err: err}
 	}
-	return newFile(fd, joinPath(root.Name(), name), "file"), nil
+	// openat always returns a non-blocking handle.
+	return newFile(fd, joinPath(root.Name(), name), "file", false), nil
 }
 
 func openat(dirfd syscall.Handle, name string, flag int, perm FileMode) (syscall.Handle, error) {
@@ -167,7 +168,7 @@ func readReparseLinkAt(dirfd syscall.Handle, name string) (string, error) {
 		syscall.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE|syscall.FILE_SHARE_DELETE,
 		windows.FILE_OPEN,
 		windows.FILE_SYNCHRONOUS_IO_NONALERT|windows.FILE_OPEN_REPARSE_POINT,
-		0,
+		nil,
 		0,
 	)
 	if err != nil {
@@ -233,6 +234,52 @@ func rootStat(r *Root, name string, lstat bool) (FileInfo, error) {
 	return fi, nil
 }
 
+func rootSymlink(r *Root, oldname, newname string) error {
+	if oldname == "" {
+		return syscall.EINVAL
+	}
+
+	// CreateSymbolicLinkW converts volume-relative paths into absolute ones.
+	// Do the same.
+	if filepathlite.VolumeNameLen(oldname) > 0 && !filepathlite.IsAbs(oldname) {
+		p, err := syscall.FullPath(oldname)
+		if err == nil {
+			oldname = p
+		}
+	}
+
+	// If oldname can be resolved to a directory in the root, create a directory link.
+	// Otherwise, create a file link.
+	var flags windows.SymlinkatFlags
+	if filepathlite.VolumeNameLen(oldname) == 0 && !IsPathSeparator(oldname[0]) {
+		// oldname is a path relative to the directory containing newname.
+		// Prepend newname's directory to it to make a path relative to the root.
+		// For example, if oldname=old and newname=a\new, destPath=a\old.
+		destPath := oldname
+		if dir := dirname(newname); dir != "." {
+			destPath = dir + `\` + oldname
+		}
+		fi, err := r.Stat(destPath)
+		if err == nil && fi.IsDir() {
+			flags |= windows.SYMLINKAT_DIRECTORY
+		}
+	}
+
+	// Empirically, CreateSymbolicLinkW appears to set the relative flag iff
+	// the target does not contain a volume name.
+	if filepathlite.VolumeNameLen(oldname) == 0 {
+		flags |= windows.SYMLINKAT_RELATIVE
+	}
+
+	_, err := doInRoot(r, newname, func(parent sysfdType, name string) (struct{}, error) {
+		return struct{}{}, windows.Symlinkat(oldname, parent, name, flags)
+	})
+	if err != nil {
+		return &LinkError{"symlinkat", oldname, newname, err}
+	}
+	return nil
+}
+
 func chmodat(parent syscall.Handle, name string, mode FileMode) error {
 	// Currently, on Windows os.Chmod("symlink") will act on "symlink",
 	// not on any file it points to.
@@ -290,7 +337,15 @@ func mkdirat(dirfd syscall.Handle, name string, perm FileMode) error {
 }
 
 func removeat(dirfd syscall.Handle, name string) error {
-	return windows.Deleteat(dirfd, name)
+	return windows.Deleteat(dirfd, name, 0)
+}
+
+func removefileat(dirfd syscall.Handle, name string) error {
+	return windows.Deleteat(dirfd, name, windows.FILE_NON_DIRECTORY_FILE)
+}
+
+func removedirat(dirfd syscall.Handle, name string) error {
+	return windows.Deleteat(dirfd, name, windows.FILE_DIRECTORY_FILE)
 }
 
 func chtimesat(dirfd syscall.Handle, name string, atime time.Time, mtime time.Time) error {

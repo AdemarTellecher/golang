@@ -1645,6 +1645,53 @@ func testTLSServer(t *testing.T, mode testMode) {
 	}
 }
 
+type fakeConnectionStateConn struct {
+	net.Conn
+}
+
+func (fcsc *fakeConnectionStateConn) ConnectionState() tls.ConnectionState {
+	return tls.ConnectionState{
+		ServerName: "example.com",
+	}
+}
+
+func TestTLSServerWithoutTLSConn(t *testing.T) {
+	//set up
+	pr, pw := net.Pipe()
+	c := make(chan int)
+	listener := &oneConnListener{&fakeConnectionStateConn{pr}}
+	server := &Server{
+		Handler: HandlerFunc(func(writer ResponseWriter, request *Request) {
+			if request.TLS == nil {
+				t.Fatal("request.TLS is nil, expected not nil")
+			}
+			if request.TLS.ServerName != "example.com" {
+				t.Fatalf("request.TLS.ServerName is %s, expected %s", request.TLS.ServerName, "example.com")
+			}
+			writer.Header().Set("X-TLS-ServerName", "example.com")
+		}),
+	}
+
+	// write request and read response
+	go func() {
+		req, _ := NewRequest(MethodGet, "https://example.com", nil)
+		req.Write(pw)
+
+		resp, _ := ReadResponse(bufio.NewReader(pw), req)
+		if hdr := resp.Header.Get("X-TLS-ServerName"); hdr != "example.com" {
+			t.Errorf("response header X-TLS-ServerName is %s, expected %s", hdr, "example.com")
+		}
+		close(c)
+		pw.Close()
+	}()
+
+	server.Serve(listener)
+
+	// oneConnListener returns error after one accept, wait util response is read
+	<-c
+	pr.Close()
+}
+
 func TestServeTLS(t *testing.T) {
 	CondSkipHTTP2(t)
 	// Not parallel: uses global test hooks.
@@ -6130,6 +6177,50 @@ func testServerHijackGetsBackgroundByte(t *testing.T, mode testMode) {
 	}
 	<-inHandler
 	if _, err := cn.Write([]byte("foo")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cn.(*net.TCPConn).CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+}
+
+// Test that the bufio.Reader returned by Hijack yields the entire body.
+func TestServerHijackGetsFullBody(t *testing.T) {
+	run(t, testServerHijackGetsFullBody, []testMode{http1Mode})
+}
+func testServerHijackGetsFullBody(t *testing.T, mode testMode) {
+	if runtime.GOOS == "plan9" {
+		t.Skip("skipping test; see https://golang.org/issue/18657")
+	}
+	done := make(chan struct{})
+	needle := strings.Repeat("x", 100*1024) // assume: larger than net/http bufio size
+	ts := newClientServerTest(t, mode, HandlerFunc(func(w ResponseWriter, r *Request) {
+		defer close(done)
+
+		conn, buf, err := w.(Hijacker).Hijack()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer conn.Close()
+
+		got := make([]byte, len(needle))
+		n, err := io.ReadFull(buf.Reader, got)
+		if n != len(needle) || string(got) != needle || err != nil {
+			t.Errorf("Peek = %q, %v; want 'x'*4096, nil", got, err)
+		}
+	})).ts
+
+	cn, err := net.Dial("tcp", ts.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cn.Close()
+	buf := []byte("GET / HTTP/1.1\r\nHost: e.com\r\n\r\n")
+	buf = append(buf, []byte(needle)...)
+	if _, err := cn.Write(buf); err != nil {
 		t.Fatal(err)
 	}
 

@@ -619,13 +619,18 @@ type m struct {
 	// Up to 10 locks held by this m, maintained by the lock ranking code.
 	locksHeldLen int
 	locksHeld    [10]heldLockInfo
+}
+
+const mRedZoneSize = (16 << 3) * asanenabledBit // redZoneSize(2048)
+
+type mPadded struct {
+	m
 
 	// Size the runtime.m structure so it fits in the 2048-byte size class, and
 	// not in the next-smallest (1792-byte) size class. That leaves the 11 low
 	// bits of muintptr values available for flags, as required for
 	// GOEXPERIMENT=spinbitmutex.
-	_ [goexperiment.SpinbitMutexInt * 64 * goarch.PtrSize / 8]byte
-	_ [goexperiment.SpinbitMutexInt * 700 * (2 - goarch.PtrSize/4)]byte
+	_ [goexperiment.SpinbitMutexInt * (2048 - mallocHeaderSize - mRedZoneSize - unsafe.Sizeof(m{}))]byte
 }
 
 type p struct {
@@ -666,10 +671,7 @@ type p struct {
 	runnext guintptr
 
 	// Available G's (status == Gdead)
-	gFree struct {
-		gList
-		n int32
-	}
+	gFree gList
 
 	sudogcache []*sudog
 	sudogbuf   [128]*sudog
@@ -780,8 +782,7 @@ type schedt struct {
 	needspinning atomic.Uint32 // See "Delicate dance" comment in proc.go. Boolean. Must hold sched.lock to set to 1.
 
 	// Global runnable queue.
-	runq     gQueue
-	runqsize int32
+	runq gQueue
 
 	// disable controls selective disabling of the scheduler.
 	//
@@ -792,7 +793,6 @@ type schedt struct {
 		// user disables scheduling of user goroutines.
 		user     bool
 		runnable gQueue // pending runnable Gs
-		n        int32  // length of runnable
 	}
 
 	// Global cache of dead G's.
@@ -800,7 +800,6 @@ type schedt struct {
 		lock    mutex
 		stack   gList // Gs with stacks
 		noStack gList // Gs without stacks
-		n       int32
 	}
 
 	// Central cache of sudog structs.

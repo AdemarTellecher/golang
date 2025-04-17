@@ -457,6 +457,9 @@ func TestRootChtimes(t *testing.T) {
 				case "js", "plan9":
 					times.atime = times.atime.Truncate(1 * time.Second)
 					times.mtime = times.mtime.Truncate(1 * time.Second)
+				case "illumos":
+					times.atime = times.atime.Truncate(1 * time.Microsecond)
+					times.mtime = times.mtime.Truncate(1 * time.Microsecond)
 				}
 
 				err := root.Chtimes(test.open, times.atime, times.mtime)
@@ -853,6 +856,29 @@ func testRootMoveTo(t *testing.T, rename bool) {
 			got, err := os.ReadFile(filepath.Join(root.Name(), target))
 			if err != nil || !bytes.Equal(got, want) {
 				t.Errorf(`os.ReadFile(%q): read content %q, %v; want %q`, target, string(got), err, string(want))
+			}
+		})
+	}
+}
+
+func TestRootSymlink(t *testing.T) {
+	testenv.MustHaveSymlink(t)
+	for _, test := range rootTestCases {
+		test.run(t, func(t *testing.T, target string, root *os.Root) {
+			wantError := test.wantError
+			if test.ltarget != "" {
+				// We can't create a symlink over an existing symlink.
+				wantError = true
+			}
+
+			const wantTarget = "linktarget"
+			err := root.Symlink(wantTarget, test.open)
+			if errEndsTest(t, err, wantError, "root.Symlink(%q)", test.open) {
+				return
+			}
+			got, err := os.Readlink(target)
+			if err != nil || got != wantTarget {
+				t.Fatalf("ReadLink(%q) = %q, %v; want %q, nil", target, got, err, wantTarget)
 			}
 		})
 	}
@@ -1360,6 +1386,25 @@ func testRootConsistencyMove(t *testing.T, rename bool) {
 					return fmt.Sprintf("name:%q size:%v mode:%v isdir:%v", fi.Name(), fi.Size(), fi.Mode(), fi.IsDir()), nil
 				})
 			}
+		})
+	}
+}
+
+func TestRootConsistencySymlink(t *testing.T) {
+	testenv.MustHaveSymlink(t)
+	for _, test := range rootConsistencyTestCases {
+		test.run(t, func(t *testing.T, path string, r *os.Root) (string, error) {
+			const target = "linktarget"
+			var err error
+			var got string
+			if r == nil {
+				err = os.Symlink(target, path)
+				got, _ = os.Readlink(target)
+			} else {
+				err = r.Symlink(target, path)
+				got, _ = r.Readlink(target)
+			}
+			return got, err
 		})
 	}
 }

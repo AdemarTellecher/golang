@@ -246,6 +246,19 @@ func isPtr(t *types.Type) bool {
 	return t.IsPtrShaped()
 }
 
+func copyCompatibleType(t1, t2 *types.Type) bool {
+	if t1.Size() != t2.Size() {
+		return false
+	}
+	if t1.IsInteger() {
+		return t2.IsInteger()
+	}
+	if isPtr(t1) {
+		return isPtr(t2)
+	}
+	return t1.Compare(t2) == types.CMPeq
+}
+
 // mergeSym merges two symbolic offsets. There is no real merging of
 // offsets, we just pick the non-nil one.
 func mergeSym(x, y Sym) Sym {
@@ -419,9 +432,9 @@ func canMergeLoad(target, load *Value) bool {
 	return true
 }
 
-// isSameCall reports whether sym is the same as the given named symbol.
-func isSameCall(sym interface{}, name string) bool {
-	fn := sym.(*AuxCall).Fn
+// isSameCall reports whether aux is the same as the given named symbol.
+func isSameCall(aux Aux, name string) bool {
+	fn := aux.(*AuxCall).Fn
 	return fn != nil && fn.String() == name
 }
 
@@ -822,7 +835,18 @@ func isSamePtr(p1, p2 *Value) bool {
 		return true
 	}
 	if p1.Op != p2.Op {
-		return false
+		for p1.Op == OpOffPtr && p1.AuxInt == 0 {
+			p1 = p1.Args[0]
+		}
+		for p2.Op == OpOffPtr && p2.AuxInt == 0 {
+			p2 = p2.Args[0]
+		}
+		if p1 == p2 {
+			return true
+		}
+		if p1.Op != p2.Op {
+			return false
+		}
 	}
 	switch p1.Op {
 	case OpOffPtr:
@@ -1960,7 +1984,7 @@ func needRaceCleanup(sym *AuxCall, v *Value) bool {
 }
 
 // symIsRO reports whether sym is a read-only global.
-func symIsRO(sym interface{}) bool {
+func symIsRO(sym Sym) bool {
 	lsym := sym.(*obj.LSym)
 	return lsym.Type == objabi.SRODATA && len(lsym.R) == 0
 }
@@ -2051,7 +2075,7 @@ func fixedSym(f *Func, sym Sym, off int64) Sym {
 }
 
 // read8 reads one byte from the read-only global sym at offset off.
-func read8(sym interface{}, off int64) uint8 {
+func read8(sym Sym, off int64) uint8 {
 	lsym := sym.(*obj.LSym)
 	if off >= int64(len(lsym.P)) || off < 0 {
 		// Invalid index into the global sym.
@@ -2064,7 +2088,7 @@ func read8(sym interface{}, off int64) uint8 {
 }
 
 // read16 reads two bytes from the read-only global sym at offset off.
-func read16(sym interface{}, off int64, byteorder binary.ByteOrder) uint16 {
+func read16(sym Sym, off int64, byteorder binary.ByteOrder) uint16 {
 	lsym := sym.(*obj.LSym)
 	// lsym.P is written lazily.
 	// Bytes requested after the end of lsym.P are 0.
@@ -2078,7 +2102,7 @@ func read16(sym interface{}, off int64, byteorder binary.ByteOrder) uint16 {
 }
 
 // read32 reads four bytes from the read-only global sym at offset off.
-func read32(sym interface{}, off int64, byteorder binary.ByteOrder) uint32 {
+func read32(sym Sym, off int64, byteorder binary.ByteOrder) uint32 {
 	lsym := sym.(*obj.LSym)
 	var src []byte
 	if 0 <= off && off < int64(len(lsym.P)) {
@@ -2090,7 +2114,7 @@ func read32(sym interface{}, off int64, byteorder binary.ByteOrder) uint32 {
 }
 
 // read64 reads eight bytes from the read-only global sym at offset off.
-func read64(sym interface{}, off int64, byteorder binary.ByteOrder) uint64 {
+func read64(sym Sym, off int64, byteorder binary.ByteOrder) uint64 {
 	lsym := sym.(*obj.LSym)
 	var src []byte
 	if 0 <= off && off < int64(len(lsym.P)) {

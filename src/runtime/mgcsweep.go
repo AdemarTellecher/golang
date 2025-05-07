@@ -517,7 +517,7 @@ func (sl *sweepLocked) sweep(preserve bool) bool {
 
 	trace := traceAcquire()
 	if trace.ok() {
-		trace.GCSweepSpan(s.npages * _PageSize)
+		trace.GCSweepSpan(s.npages * pageSize)
 		traceRelease(trace)
 	}
 
@@ -640,6 +640,11 @@ func (sl *sweepLocked) sweep(preserve bool) bool {
 		}
 	}
 
+	// Copy over the inline mark bits if necessary.
+	if gcUsesSpanInlineMarkBits(s.elemsize) {
+		s.mergeInlineMarks(s.gcmarkBits)
+	}
+
 	// Check for zombie objects.
 	if s.freeindex < s.nelems {
 		// Everything < freeindex is allocated and hence
@@ -688,6 +693,11 @@ func (sl *sweepLocked) sweep(preserve bool) bool {
 
 	// Initialize alloc bits cache.
 	s.refillAllocCache(0)
+
+	// Reset the object queue, if we have one.
+	if gcUsesSpanInlineMarkBits(s.elemsize) {
+		s.initInlineMarkBits()
+	}
 
 	// The span must be in our exclusive ownership until we update sweepgen,
 	// check for potential races.
@@ -981,9 +991,9 @@ func gcPaceSweeper(trigger uint64) {
 		// concurrent sweep are less likely to leave pages
 		// unswept when GC starts.
 		heapDistance -= 1024 * 1024
-		if heapDistance < _PageSize {
+		if heapDistance < pageSize {
 			// Avoid setting the sweep ratio extremely high
-			heapDistance = _PageSize
+			heapDistance = pageSize
 		}
 		pagesSwept := mheap_.pagesSwept.Load()
 		pagesInUse := mheap_.pagesInUse.Load()

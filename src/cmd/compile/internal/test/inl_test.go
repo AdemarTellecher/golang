@@ -67,16 +67,18 @@ func TestIntendedInlining(t *testing.T) {
 			// GC-related ones
 			"cgoInRange",
 			"gclinkptr.ptr",
+			"gcUsesSpanInlineMarkBits",
 			"guintptr.ptr",
 			"heapBitsSlice",
 			"markBits.isMarked",
 			"muintptr.ptr",
 			"puintptr.ptr",
+			"spanHeapBitsRange",
 			"spanOf",
 			"spanOfUnchecked",
 			"typePointers.nextFast",
-			"(*gcWork).putFast",
-			"(*gcWork).tryGetFast",
+			"(*gcWork).putObjFast",
+			"(*gcWork).tryGetObjFast",
 			"(*guintptr).set",
 			"(*markBits).advance",
 			"(*mspan).allocBitsForIndex",
@@ -175,9 +177,6 @@ func TestIntendedInlining(t *testing.T) {
 		},
 		"math/big": {
 			"bigEndianWord",
-			// The following functions require the math_big_pure_go build tag.
-			"addVW",
-			"subVW",
 		},
 		"math/rand": {
 			"(*rngSource).Int63",

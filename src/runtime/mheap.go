@@ -12,7 +12,9 @@ import (
 	"internal/abi"
 	"internal/cpu"
 	"internal/goarch"
+	"internal/goexperiment"
 	"internal/runtime/atomic"
+	"internal/runtime/gc"
 	"internal/runtime/sys"
 	"unsafe"
 )
@@ -307,6 +309,10 @@ type heapArena struct {
 	// during marking.
 	pageSpecials [pagesPerArena / 8]uint8
 
+	// pageUseSpanDartboard is a bitmap that indicates which spans are
+	// heap spans and also gcUsesSpanDartboard.
+	pageUseSpanInlineMarkBits [pagesPerArena / 8]uint8
+
 	// checkmarks stores the debug.gccheckmark state. It is only
 	// used if debug.gccheckmark > 0.
 	checkmarks *checkmarksMap
@@ -406,13 +412,6 @@ func (b *mSpanStateBox) get() mSpanState {
 	return mSpanState(b.s.Load())
 }
 
-// mSpanList heads a linked list of spans.
-type mSpanList struct {
-	_     sys.NotInHeap
-	first *mspan // first span in list, or nil if none
-	last  *mspan // last span in list, or nil if none
-}
-
 type mspan struct {
 	_    sys.NotInHeap
 	next *mspan     // next span in list, or nil if none
@@ -430,12 +429,12 @@ type mspan struct {
 	// indicating a free object. freeindex is then adjusted so that subsequent scans begin
 	// just past the newly discovered free object.
 	//
-	// If freeindex == nelem, this span has no free objects.
+	// If freeindex == nelems, this span has no free objects.
 	//
 	// allocBits is a bitmap of objects in this span.
 	// If n >= freeindex and allocBits[n/8] & (1<<(n%8)) is 0
 	// then object n is free;
-	// otherwise, object n is allocated. Bits starting at nelem are
+	// otherwise, object n is allocated. Bits starting at nelems are
 	// undefined and should never be referenced.
 	//
 	// Object n starts at address n*elemsize + (start << pageShift).
@@ -450,6 +449,12 @@ type mspan struct {
 	// initialized (see also the assignment of freeIndexForScan in
 	// mallocgc, and issue 54596).
 	freeIndexForScan uint16
+
+	// Temporary storage for the object index that caused this span to
+	// be queued for scanning.
+	//
+	// Used only with goexperiment.GreenTeaGC.
+	scanIdx uint16
 
 	// Cache of the allocBits at freeindex. allocCache is shifted
 	// such that the lowest bit corresponds to the bit freeindex.
@@ -514,7 +519,7 @@ func (s *mspan) base() uintptr {
 }
 
 func (s *mspan) layout() (size, n, total uintptr) {
-	total = s.npages << _PageShift
+	total = s.npages << gc.PageShift
 	size = s.elemsize
 	if size > 0 {
 		n = total / size
@@ -576,7 +581,7 @@ func recordspan(vh unsafe.Pointer, p unsafe.Pointer) {
 type spanClass uint8
 
 const (
-	numSpanClasses = _NumSizeClasses << 1
+	numSpanClasses = gc.NumSizeClasses << 1
 	tinySpanClass  = spanClass(tinySizeClass<<1 | 1)
 )
 
@@ -754,6 +759,27 @@ func pageIndexOf(p uintptr) (arena *heapArena, pageIdx uintptr, pageMask uint8) 
 	pageIdx = ((p / pageSize) / 8) % uintptr(len(arena.pageInUse))
 	pageMask = byte(1 << ((p / pageSize) % 8))
 	return
+}
+
+// heapArenaOf returns the heap arena for p, if one exists.
+func heapArenaOf(p uintptr) *heapArena {
+	ri := arenaIndex(p)
+	if arenaL1Bits == 0 {
+		// If there's no L1, then ri.l1() can't be out of bounds but ri.l2() can.
+		if ri.l2() >= uint(len(mheap_.arenas[0])) {
+			return nil
+		}
+	} else {
+		// If there's an L1, then ri.l1() can be out of bounds but ri.l2() can't.
+		if ri.l1() >= uint(len(mheap_.arenas)) {
+			return nil
+		}
+	}
+	l2 := mheap_.arenas[ri.l1()]
+	if arenaL1Bits != 0 && l2 == nil { // Should never happen if there's no L1.
+		return nil
+	}
+	return l2[ri.l2()]
 }
 
 // Initialize the heap.
@@ -1423,14 +1449,27 @@ func (h *mheap) initSpan(s *mspan, typ spanAllocType, spanclass spanClass, base,
 			s.nelems = 1
 			s.divMul = 0
 		} else {
-			s.elemsize = uintptr(class_to_size[sizeclass])
-			if !s.spanclass.noscan() && heapBitsInSpan(s.elemsize) {
-				// Reserve space for the pointer/scan bitmap at the end.
-				s.nelems = uint16((nbytes - (nbytes / goarch.PtrSize / 8)) / s.elemsize)
+			s.elemsize = uintptr(gc.SizeClassToSize[sizeclass])
+			if goexperiment.GreenTeaGC {
+				var reserve uintptr
+				if gcUsesSpanInlineMarkBits(s.elemsize) {
+					// Reserve space for the inline mark bits.
+					reserve += unsafe.Sizeof(spanInlineMarkBits{})
+				}
+				if heapBitsInSpan(s.elemsize) && !s.spanclass.noscan() {
+					// Reserve space for the pointer/scan bitmap at the end.
+					reserve += nbytes / goarch.PtrSize / 8
+				}
+				s.nelems = uint16((nbytes - reserve) / s.elemsize)
 			} else {
-				s.nelems = uint16(nbytes / s.elemsize)
+				if !s.spanclass.noscan() && heapBitsInSpan(s.elemsize) {
+					// Reserve space for the pointer/scan bitmap at the end.
+					s.nelems = uint16((nbytes - (nbytes / goarch.PtrSize / 8)) / s.elemsize)
+				} else {
+					s.nelems = uint16(nbytes / s.elemsize)
+				}
 			}
-			s.divMul = class_to_divmagic[sizeclass]
+			s.divMul = gc.SizeClassToDivMagic[sizeclass]
 		}
 
 		// Initialize mark and allocation structures.
@@ -1475,6 +1514,11 @@ func (h *mheap) initSpan(s *mspan, typ spanAllocType, spanclass spanClass, base,
 		// prior to this line.
 		arena, pageIdx, pageMask := pageIndexOf(s.base())
 		atomic.Or8(&arena.pageInUse[pageIdx], pageMask)
+
+		// Mark packed span.
+		if gcUsesSpanInlineMarkBits(s.elemsize) {
+			atomic.Or8(&arena.pageUseSpanInlineMarkBits[pageIdx], pageMask)
+		}
 
 		// Update related page sweeper stats.
 		h.pagesInUse.Add(npages)
@@ -1589,13 +1633,13 @@ func (h *mheap) freeSpan(s *mspan) {
 		if msanenabled {
 			// Tell msan that this entire span is no longer in use.
 			base := unsafe.Pointer(s.base())
-			bytes := s.npages << _PageShift
+			bytes := s.npages << gc.PageShift
 			msanfree(base, bytes)
 		}
 		if asanenabled {
 			// Tell asan that this entire span is no longer in use.
 			base := unsafe.Pointer(s.base())
-			bytes := s.npages << _PageShift
+			bytes := s.npages << gc.PageShift
 			asanpoison(base, bytes)
 		}
 		h.freeSpanLocked(s, spanAllocHeap)
@@ -1651,6 +1695,11 @@ func (h *mheap) freeSpanLocked(s *mspan, typ spanAllocType) {
 		// Clear in-use bit in arena page bitmap.
 		arena, pageIdx, pageMask := pageIndexOf(s.base())
 		atomic.And8(&arena.pageInUse[pageIdx], ^pageMask)
+
+		// Clear small heap span bit if necessary.
+		if gcUsesSpanInlineMarkBits(s.elemsize) {
+			atomic.And8(&arena.pageUseSpanInlineMarkBits[pageIdx], ^pageMask)
+		}
 	default:
 		throw("mheap.freeSpanLocked - invalid span state")
 	}
@@ -1742,6 +1791,13 @@ func (span *mspan) inList() bool {
 	return span.list != nil
 }
 
+// mSpanList heads a linked list of spans.
+type mSpanList struct {
+	_     sys.NotInHeap
+	first *mspan // first span in list, or nil if none
+	last  *mspan // last span in list, or nil if none
+}
+
 // Initialize an empty doubly-linked list.
 func (list *mSpanList) init() {
 	list.first = nil
@@ -1831,6 +1887,86 @@ func (list *mSpanList) takeAll(other *mSpanList) {
 	}
 
 	other.first, other.last = nil, nil
+}
+
+// mSpanQueue is like an mSpanList but is FIFO instead of LIFO and may
+// be allocated on the stack. (mSpanList can be visible from the mspan
+// itself, so it is marked as not-in-heap).
+type mSpanQueue struct {
+	head, tail *mspan
+	n          int
+}
+
+// push adds s to the end of the queue.
+func (q *mSpanQueue) push(s *mspan) {
+	if s.next != nil {
+		throw("span already on list")
+	}
+	if q.tail == nil {
+		q.tail, q.head = s, s
+	} else {
+		q.tail.next = s
+		q.tail = s
+	}
+	q.n++
+}
+
+// pop removes a span from the head of the queue, if any.
+func (q *mSpanQueue) pop() *mspan {
+	if q.head == nil {
+		return nil
+	}
+	s := q.head
+	q.head = s.next
+	s.next = nil
+	if q.head == nil {
+		q.tail = nil
+	}
+	q.n--
+	return s
+}
+
+// takeAll removes all the spans from q2 and adds them to the end of q1, in order.
+func (q1 *mSpanQueue) takeAll(q2 *mSpanQueue) {
+	if q2.head == nil {
+		return
+	}
+	if q1.head == nil {
+		*q1 = *q2
+	} else {
+		q1.tail.next = q2.head
+		q1.tail = q2.tail
+		q1.n += q2.n
+	}
+	q2.tail = nil
+	q2.head = nil
+	q2.n = 0
+}
+
+// popN removes n spans from the head of the queue and returns them as a new queue.
+func (q *mSpanQueue) popN(n int) mSpanQueue {
+	var newQ mSpanQueue
+	if n <= 0 {
+		return newQ
+	}
+	if n >= q.n {
+		newQ = *q
+		q.tail = nil
+		q.head = nil
+		q.n = 0
+		return newQ
+	}
+	s := q.head
+	for range n - 1 {
+		s = s.next
+	}
+	q.n -= n
+	newQ.head = q.head
+	newQ.tail = s
+	newQ.n = n
+	q.head = s.next
+	s.next = nil
+	return newQ
 }
 
 const (

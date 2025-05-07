@@ -1719,14 +1719,6 @@ func (l *Loader) GetVarDwarfAuxSym(i Sym) Sym {
 // expected to have the actual content/payload) and then a set of
 // interior loader.Sym's that point into a portion of the container.
 func (l *Loader) AddInteriorSym(container Sym, interior Sym) {
-	// Container symbols are expected to have content/data.
-	// NB: this restriction may turn out to be too strict (it's possible
-	// to imagine a zero-sized container with an interior symbol pointing
-	// into it); it's ok to relax or remove it if we counter an
-	// oddball host object that triggers this.
-	if l.SymSize(container) == 0 && len(l.Data(container)) == 0 {
-		panic("unexpected empty container symbol")
-	}
 	// The interior symbols for a container are not expected to have
 	// content/data or relocations.
 	if len(l.Data(interior)) != 0 {
@@ -2359,8 +2351,8 @@ var blockedLinknames = map[string][]string{
 	"crypto/internal/sysrand.fatal":         {"crypto/internal/sysrand"},
 	"crypto/rand.fatal":                     {"crypto/rand"},
 	"internal/runtime/maps.errNilAssign":    {"internal/runtime/maps"},
+	"internal/runtime/maps.typeString":      {"internal/runtime/maps"},
 	"internal/runtime/maps.fatal":           {"internal/runtime/maps"},
-	"internal/runtime/maps.mapKeyError":     {"internal/runtime/maps"},
 	"internal/runtime/maps.newarray":        {"internal/runtime/maps"},
 	"internal/runtime/maps.newobject":       {"internal/runtime/maps"},
 	"internal/runtime/maps.typedmemclr":     {"internal/runtime/maps"},

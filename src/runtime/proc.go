@@ -778,6 +778,9 @@ func cpuinit(env string) {
 		loong64HasLAMCAS = cpu.Loong64.HasLAMCAS
 		loong64HasLAM_BH = cpu.Loong64.HasLAM_BH
 		loong64HasLSX = cpu.Loong64.HasLSX
+
+	case "riscv64":
+		riscv64HasZbb = cpu.RISCV64.HasZbb
 	}
 }
 
@@ -5690,14 +5693,10 @@ func (pp *p) destroy() {
 		wbBufFlush1(pp)
 		pp.gcw.dispose()
 	}
-	for i := range pp.sudogbuf {
-		pp.sudogbuf[i] = nil
-	}
+	clear(pp.sudogbuf[:])
 	pp.sudogcache = pp.sudogbuf[:0]
 	pp.pinnerCache = nil
-	for j := range pp.deferpoolbuf {
-		pp.deferpoolbuf[j] = nil
-	}
+	clear(pp.deferpoolbuf[:])
 	pp.deferpool = pp.deferpoolbuf[:0]
 	systemstack(func() {
 		for i := 0; i < pp.mspancache.len; i++ {

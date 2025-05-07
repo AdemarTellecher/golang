@@ -10,6 +10,7 @@ import (
 	"internal/abi"
 	"internal/goarch"
 	"internal/runtime/atomic"
+	"internal/runtime/gc"
 	"internal/runtime/sys"
 	"unsafe"
 )
@@ -323,7 +324,7 @@ func isGoPointerWithoutSpan(p unsafe.Pointer) bool {
 // blockUntilEmptyFinalizerQueue blocks until either the finalizer
 // queue is emptied (and the finalizers have executed) or the timeout
 // is reached. Returns true if the finalizer queue was emptied.
-// This is used by the runtime and sync tests.
+// This is used by the runtime, sync, and unique tests.
 func blockUntilEmptyFinalizerQueue(timeout int64) bool {
 	start := nanotime()
 	for nanotime()-start < timeout {
@@ -339,6 +340,11 @@ func blockUntilEmptyFinalizerQueue(timeout int64) bool {
 		Gosched()
 	}
 	return false
+}
+
+//go:linkname unique_runtime_blockUntilEmptyFinalizerQueue unique.runtime_blockUntilEmptyFinalizerQueue
+func unique_runtime_blockUntilEmptyFinalizerQueue(timeout int64) bool {
+	return blockUntilEmptyFinalizerQueue(timeout)
 }
 
 // SetFinalizer sets the finalizer associated with obj to the provided
@@ -467,7 +473,7 @@ func SetFinalizer(obj any, finalizer any) {
 
 	// Move base forward if we've got an allocation header.
 	if !span.spanclass.noscan() && !heapBitsInSpan(span.elemsize) && span.spanclass.sizeclass() != 0 {
-		base += mallocHeaderSize
+		base += gc.MallocHeaderSize
 	}
 
 	if uintptr(e.data) != base {

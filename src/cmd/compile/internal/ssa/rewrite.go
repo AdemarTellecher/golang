@@ -560,6 +560,30 @@ func b2i32(b bool) int32 {
 	return 0
 }
 
+func canMulStrengthReduce(config *Config, x int64) bool {
+	_, ok := config.mulRecipes[x]
+	return ok
+}
+func canMulStrengthReduce32(config *Config, x int32) bool {
+	_, ok := config.mulRecipes[int64(x)]
+	return ok
+}
+
+// mulStrengthReduce returns v*x evaluated at the location
+// (block and source position) of m.
+// canMulStrengthReduce must have returned true.
+func mulStrengthReduce(m *Value, v *Value, x int64) *Value {
+	return v.Block.Func.Config.mulRecipes[x].build(m, v)
+}
+
+// mulStrengthReduce32 returns v*x evaluated at the location
+// (block and source position) of m.
+// canMulStrengthReduce32 must have returned true.
+// The upper 32 bits of m might be set to junk.
+func mulStrengthReduce32(m *Value, v *Value, x int32) *Value {
+	return v.Block.Func.Config.mulRecipes[int64(x)].build(m, v)
+}
+
 // shiftIsBounded reports whether (left/right) shift Value v is known to be bounded.
 // A shift is bounded if it is shifting by less than the width of the shifted value.
 func shiftIsBounded(v *Value) bool {
@@ -2583,4 +2607,34 @@ func bitsAdd64(x, y, carry int64) (r struct{ sum, carry int64 }) {
 	s, c := bits.Add64(uint64(x), uint64(y), uint64(carry))
 	r.sum, r.carry = int64(s), int64(c)
 	return
+}
+
+func bitsMulU64(x, y int64) (r struct{ hi, lo int64 }) {
+	hi, lo := bits.Mul64(uint64(x), uint64(y))
+	r.hi, r.lo = int64(hi), int64(lo)
+	return
+}
+func bitsMulU32(x, y int32) (r struct{ hi, lo int32 }) {
+	hi, lo := bits.Mul32(uint32(x), uint32(y))
+	r.hi, r.lo = int32(hi), int32(lo)
+	return
+}
+
+// flagify rewrites v which is (X ...) to (Select0 (Xflags ...)).
+func flagify(v *Value) bool {
+	var flagVersion Op
+	switch v.Op {
+	case OpAMD64ADDQconst:
+		flagVersion = OpAMD64ADDQconstflags
+	case OpAMD64ADDLconst:
+		flagVersion = OpAMD64ADDLconstflags
+	default:
+		base.Fatalf("can't flagify op %s", v.Op)
+	}
+	inner := v.copyInto(v.Block)
+	inner.Op = flagVersion
+	inner.Type = types.NewTuple(v.Type, types.TypeFlags)
+	v.reset(OpSelect0)
+	v.AddArg(inner)
+	return true
 }

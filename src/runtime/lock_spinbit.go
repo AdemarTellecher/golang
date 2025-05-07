@@ -2,13 +2,14 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build (aix || darwin || dragonfly || freebsd || linux || netbsd || openbsd || plan9 || solaris || windows) && goexperiment.spinbitmutex
+//go:build !wasm
 
 package runtime
 
 import (
 	"internal/goarch"
 	"internal/runtime/atomic"
+	"internal/runtime/gc"
 	"unsafe"
 )
 
@@ -60,7 +61,7 @@ const (
 	mutexSpinning    = 0x100
 	mutexStackLocked = 0x200
 	mutexMMask       = 0x3FF
-	mutexMOffset     = mallocHeaderSize // alignment of heap-allocated Ms (those other than m0)
+	mutexMOffset     = gc.MallocHeaderSize // alignment of heap-allocated Ms (those other than m0)
 
 	mutexActiveSpinCount  = 4
 	mutexActiveSpinSize   = 30
@@ -90,7 +91,7 @@ type mWaitList struct {
 
 // lockVerifyMSize confirms that we can recreate the low bits of the M pointer.
 func lockVerifyMSize() {
-	size := roundupsize(unsafe.Sizeof(mPadded{}), false) + mallocHeaderSize
+	size := roundupsize(unsafe.Sizeof(mPadded{}), false) + gc.MallocHeaderSize
 	if size&mutexMMask != 0 {
 		print("M structure uses sizeclass ", size, "/", hex(size), " bytes; ",
 			"incompatible with mutex flag mask ", hex(mutexMMask), "\n")
@@ -143,7 +144,7 @@ func mutexPreferLowLatency(l *mutex) bool {
 }
 
 func mutexContended(l *mutex) bool {
-	return atomic.Loaduintptr(&l.key) > mutexLocked
+	return atomic.Loaduintptr(&l.key)&^mutexMMask != 0
 }
 
 func lock(l *mutex) {

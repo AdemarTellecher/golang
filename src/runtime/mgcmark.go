@@ -18,6 +18,7 @@ import (
 const (
 	fixedRootFinalizers = iota
 	fixedRootFreeGStacks
+	fixedRootCleanups
 	fixedRootCount
 
 	// rootBlockBytes is the number of bytes to scan per data or
@@ -179,8 +180,6 @@ func markroot(gcw *gcWork, i uint32, flushBgCredit bool) int64 {
 	case i == fixedRootFinalizers:
 		for fb := allfin; fb != nil; fb = fb.alllink {
 			cnt := uintptr(atomic.Load(&fb.cnt))
-			// Finalizers that contain cleanups only have fn set. None of the other
-			// fields are necessary.
 			scanblock(uintptr(unsafe.Pointer(&fb.fin[0])), cnt*unsafe.Sizeof(fb.fin[0]), &finptrmask[0], gcw, nil)
 		}
 
@@ -188,6 +187,14 @@ func markroot(gcw *gcWork, i uint32, flushBgCredit bool) int64 {
 		// Switch to the system stack so we can call
 		// stackfree.
 		systemstack(markrootFreeGStacks)
+
+	case i == fixedRootCleanups:
+		for cb := (*cleanupBlock)(gcCleanups.all.Load()); cb != nil; cb = cb.alllink {
+			// N.B. This only needs to synchronize with cleanup execution, which only resets these blocks.
+			// All cleanup queueing happens during sweep.
+			n := uintptr(atomic.Load(&cb.n))
+			scanblock(uintptr(unsafe.Pointer(&cb.cleanups[0])), n*goarch.PtrSize, &cleanupBlockPtrMask[0], gcw, nil)
+		}
 
 	case work.baseSpans <= i && i < work.baseStacks:
 		// mark mspan.specials
@@ -429,14 +436,14 @@ func gcAssistAlloc(gp *g) {
 		return
 	}
 
-	if gp := getg(); gp.syncGroup != nil {
+	if gp := getg(); gp.bubble != nil {
 		// Disassociate the G from its synctest bubble while allocating.
 		// This is less elegant than incrementing the group's active count,
 		// but avoids any contamination between GC assist and synctest.
-		sg := gp.syncGroup
-		gp.syncGroup = nil
+		bubble := gp.bubble
+		gp.bubble = nil
 		defer func() {
-			gp.syncGroup = sg
+			gp.bubble = bubble
 		}()
 	}
 

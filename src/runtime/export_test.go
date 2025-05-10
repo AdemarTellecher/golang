@@ -40,6 +40,8 @@ var Atoi32 = atoi32
 var ParseByteCount = parseByteCount
 
 var Nanotime = nanotime
+var Cputicks = cputicks
+var CyclesPerSecond = pprof_cyclesPerSecond
 var NetpollBreak = netpollBreak
 var Usleep = usleep
 
@@ -1794,6 +1796,10 @@ var AlignUp = alignUp
 
 func BlockUntilEmptyFinalizerQueue(timeout int64) bool {
 	return blockUntilEmptyFinalizerQueue(timeout)
+}
+
+func BlockUntilEmptyCleanupQueue(timeout int64) bool {
+	return gcCleanups.blockUntilEmpty(timeout)
 }
 
 func FrameStartLine(f *Frame) int {

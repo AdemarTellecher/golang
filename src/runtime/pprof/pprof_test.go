@@ -465,7 +465,7 @@ func testCPUProfile(t *testing.T, matches profileMatchFunc, f func(dur time.Dura
 		f(duration)
 		StopCPUProfile()
 
-		if p, ok := profileOk(t, matches, prof, duration); ok {
+		if p, ok := profileOk(t, matches, &prof, duration); ok {
 			return p
 		}
 
@@ -515,7 +515,7 @@ func stackContains(spec string, count uintptr, stk []*profile.Location, labels m
 
 type sampleMatchFunc func(spec string, count uintptr, stk []*profile.Location, labels map[string][]string) bool
 
-func profileOk(t *testing.T, matches profileMatchFunc, prof bytes.Buffer, duration time.Duration) (_ *profile.Profile, ok bool) {
+func profileOk(t *testing.T, matches profileMatchFunc, prof *bytes.Buffer, duration time.Duration) (_ *profile.Profile, ok bool) {
 	ok = true
 
 	var samples uintptr
@@ -2632,7 +2632,7 @@ func produceProfileEvents(t *testing.T, depth int) {
 	goroutineDeep(t, depth-4) // -4 for produceProfileEvents, **, chanrecv1, chanrev, gopark
 }
 
-func getProfileStacks(collect func([]runtime.BlockProfileRecord) (int, bool), fileLine bool) []string {
+func getProfileStacks(collect func([]runtime.BlockProfileRecord) (int, bool), fileLine bool, pcs bool) []string {
 	var n int
 	var ok bool
 	var p []runtime.BlockProfileRecord
@@ -2650,6 +2650,9 @@ func getProfileStacks(collect func([]runtime.BlockProfileRecord) (int, bool), fi
 		for i, pc := range r.Stack() {
 			if i > 0 {
 				stack.WriteByte('\n')
+			}
+			if pcs {
+				fmt.Fprintf(&stack, "%x ", pc)
 			}
 			// Use FuncForPC instead of CallersFrames,
 			// because we want to see the info for exactly
@@ -2691,9 +2694,9 @@ func TestMutexBlockFullAggregation(t *testing.T) {
 
 	wg := sync.WaitGroup{}
 	wg.Add(workers)
-	for j := 0; j < workers; j++ {
+	for range workers {
 		go func() {
-			for i := 0; i < iters; i++ {
+			for range iters {
 				m.Lock()
 				// Wait at least 1 millisecond to pass the
 				// starvation threshold for the mutex
@@ -2706,7 +2709,7 @@ func TestMutexBlockFullAggregation(t *testing.T) {
 	wg.Wait()
 
 	assertNoDuplicates := func(name string, collect func([]runtime.BlockProfileRecord) (int, bool)) {
-		stacks := getProfileStacks(collect, true)
+		stacks := getProfileStacks(collect, true, true)
 		seen := make(map[string]struct{})
 		for _, s := range stacks {
 			if _, ok := seen[s]; ok {
@@ -2782,7 +2785,7 @@ runtime/pprof.inlineA`,
 
 	for _, tc := range tcs {
 		t.Run(tc.Name, func(t *testing.T) {
-			stacks := getProfileStacks(tc.Collect, false)
+			stacks := getProfileStacks(tc.Collect, false, false)
 			for _, s := range stacks {
 				if strings.Contains(s, tc.SubStack) {
 					return

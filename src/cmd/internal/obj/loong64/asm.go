@@ -92,9 +92,13 @@ var optab = []Optab{
 	{AVSEQB, C_S5CON, C_VREG, C_NONE, C_VREG, C_NONE, 22, 4, 0, 0},
 	{AXVSEQB, C_S5CON, C_XREG, C_NONE, C_XREG, C_NONE, 22, 4, 0, 0},
 	{AVANDV, C_VREG, C_VREG, C_NONE, C_VREG, C_NONE, 2, 4, 0, 0},
+	{AVANDV, C_VREG, C_NONE, C_NONE, C_VREG, C_NONE, 2, 4, 0, 0},
 	{AXVANDV, C_XREG, C_XREG, C_NONE, C_XREG, C_NONE, 2, 4, 0, 0},
+	{AXVANDV, C_XREG, C_NONE, C_NONE, C_XREG, C_NONE, 2, 4, 0, 0},
 	{AVANDB, C_U8CON, C_VREG, C_NONE, C_VREG, C_NONE, 23, 4, 0, 0},
+	{AVANDB, C_U8CON, C_NONE, C_NONE, C_VREG, C_NONE, 23, 4, 0, 0},
 	{AXVANDB, C_U8CON, C_XREG, C_NONE, C_XREG, C_NONE, 23, 4, 0, 0},
+	{AXVANDB, C_U8CON, C_NONE, C_NONE, C_XREG, C_NONE, 23, 4, 0, 0},
 
 	{AVADDB, C_VREG, C_VREG, C_NONE, C_VREG, C_NONE, 2, 4, 0, 0},
 	{AVADDB, C_VREG, C_NONE, C_NONE, C_VREG, C_NONE, 2, 4, 0, 0},
@@ -411,6 +415,9 @@ var optab = []Optab{
 	{AXVMOVQ, C_XREG, C_NONE, C_NONE, C_ARNG, C_NONE, 42, 4, 0, 0},
 
 	{AVMOVQ, C_ELEM, C_NONE, C_NONE, C_ARNG, C_NONE, 45, 4, 0, 0},
+
+	{APRELD, C_SOREG, C_U5CON, C_NONE, C_NONE, C_NONE, 46, 4, 0, 0},
+	{APRELDX, C_SOREG, C_DCON, C_U5CON, C_NONE, C_NONE, 47, 20, 0, 0},
 
 	{obj.APCALIGN, C_U12CON, C_NONE, C_NONE, C_NONE, C_NONE, 0, 0, 0, 0},
 	{obj.APCDATA, C_32CON, C_NONE, C_NONE, C_32CON, C_NONE, 0, 0, 0, 0},
@@ -1098,6 +1105,22 @@ func (c *ctxt0) oplook(p *obj.Prog) *Optab {
 		c.ctxt.Diag("loong64 ops not initialized, call loong64.buildop first")
 	}
 
+	restArgsIndex := 0
+	restArgsLen := len(p.RestArgs)
+	if restArgsLen > 2 {
+		c.ctxt.Diag("too many RestArgs: got %v, maximum is 2\n", restArgsLen)
+		return nil
+	}
+
+	restArgsv := [2]int{C_NONE + 1, C_NONE + 1}
+	for i, ap := range p.RestArgs {
+		restArgsv[i] = int(ap.Addr.Class)
+		if restArgsv[i] == 0 {
+			restArgsv[i] = c.aclass(&ap.Addr) + 1
+			ap.Addr.Class = int8(restArgsv[i])
+		}
+	}
+
 	a1 := int(p.Optab)
 	if a1 != 0 {
 		return &optab[a1-1]
@@ -1123,6 +1146,9 @@ func (c *ctxt0) oplook(p *obj.Prog) *Optab {
 	a2 := C_NONE
 	if p.Reg != 0 {
 		a2 = c.rclass(p.Reg)
+	} else if restArgsLen > 0 {
+		a2 = restArgsv[restArgsIndex] - 1
+		restArgsIndex++
 	}
 
 	// 2nd destination operand
@@ -1133,22 +1159,20 @@ func (c *ctxt0) oplook(p *obj.Prog) *Optab {
 
 	// 3rd source operand
 	a3 := C_NONE
-	if len(p.RestArgs) > 0 {
-		a3 = int(p.RestArgs[0].Class)
-		if a3 == 0 {
-			a3 = c.aclass(&p.RestArgs[0].Addr) + 1
-			p.RestArgs[0].Class = int8(a3)
-		}
-		a3--
+	if restArgsLen > 0 && restArgsIndex < restArgsLen {
+		a3 = restArgsv[restArgsIndex] - 1
+		restArgsIndex++
 	}
 
 	ops := oprange[p.As&obj.AMask]
 	c1 := &xcmp[a1]
+	c2 := &xcmp[a2]
 	c3 := &xcmp[a3]
 	c4 := &xcmp[a4]
+	c5 := &xcmp[a5]
 	for i := range ops {
 		op := &ops[i]
-		if (int(op.reg) == a2) && c3[op.from3] && c1[op.from1] && c4[op.to1] && (int(op.to2) == a5) {
+		if c1[op.from1] && c2[op.reg] && c3[op.from3] && c4[op.to1] && c5[op.to2] {
 			p.Optab = uint16(cap(optab) - cap(ops) + i + 1)
 			return op
 		}
@@ -1486,6 +1510,8 @@ func buildop(ctxt *obj.Link) {
 			ANEGW,
 			ANEGV,
 			AWORD,
+			APRELD,
+			APRELDX,
 			obj.ANOP,
 			obj.ATEXT,
 			obj.AFUNCDATA,
@@ -1748,6 +1774,8 @@ func buildop(ctxt *obj.Link) {
 			opset(AVFRINTRMD, r0)
 			opset(AVFRINTF, r0)
 			opset(AVFRINTD, r0)
+			opset(AVFCLASSF, r0)
+			opset(AVFCLASSD, r0)
 
 		case AXVPCNTB:
 			opset(AXVPCNTH, r0)
@@ -1773,6 +1801,8 @@ func buildop(ctxt *obj.Link) {
 			opset(AXVFRINTRMD, r0)
 			opset(AXVFRINTF, r0)
 			opset(AXVFRINTD, r0)
+			opset(AXVFCLASSF, r0)
+			opset(AXVFCLASSD, r0)
 
 		case AVADDB:
 			opset(AVADDH, r0)
@@ -1901,6 +1931,10 @@ func OP_16IR_5I(op uint32, i uint32, r2 uint32) uint32 {
 
 func OP_16IRR(op uint32, i uint32, r2 uint32, r3 uint32) uint32 {
 	return op | (i&0xFFFF)<<10 | (r2&0x1F)<<5 | (r3&0x1F)<<0
+}
+
+func OP_12IR_5I(op uint32, i1 uint32, r2 uint32, i2 uint32) uint32 {
+	return op | (i1&0xFFF)<<10 | (r2&0x1F)<<5 | (i2&0x1F)<<0
 }
 
 func OP_12IRR(op uint32, i uint32, r2 uint32, r3 uint32) uint32 {
@@ -2439,6 +2473,41 @@ func (c *ctxt0) asmout(p *obj.Prog, o *Optab, out []uint32) {
 		index := uint32(p.From.Index)
 		c.checkindex(p, index, m)
 		o1 = v | (index << 10) | (vj << 5) | vd
+
+	case 46: // preld  offset(Rbase), $hint
+		offs := c.regoff(&p.From)
+		hint := p.GetFrom3().Offset
+		o1 = OP_12IR_5I(c.opiir(p.As), uint32(offs), uint32(p.From.Reg), uint32(hint))
+
+	case 47: // preldx offset(Rbase), $n, $hint
+		offs := c.regoff(&p.From)
+		hint := p.RestArgs[1].Offset
+		n := uint64(p.GetFrom3().Offset)
+
+		addrSeq := (n >> 0) & 0x1
+		blkSize := (n >> 1) & 0x7ff
+		blkNums := (n >> 12) & 0x1ff
+		stride := (n >> 21) & 0xffff
+
+		if blkSize > 1024 {
+			c.ctxt.Diag("%v: block_size amount out of range[16, 1024]: %v\n", p, blkSize)
+		}
+
+		if blkNums > 256 {
+			c.ctxt.Diag("%v: block_nums amount out of range[1, 256]: %v\n", p, blkSize)
+		}
+
+		v := (uint64(offs) & 0xffff)
+		v += addrSeq << 16
+		v += ((blkSize / 16) - 1) << 20
+		v += (blkNums - 1) << 32
+		v += stride << 44
+
+		o1 = OP_IR(c.opir(ALU12IW), uint32(v>>12), uint32(REGTMP))
+		o2 = OP_12IRR(c.opirr(AOR), uint32(v), uint32(REGTMP), uint32(REGTMP))
+		o3 = OP_IR(c.opir(ALU32ID), uint32(v>>32), uint32(REGTMP))
+		o4 = OP_12IRR(c.opirr(ALU52ID), uint32(v>>52), uint32(REGTMP), uint32(REGTMP))
+		o5 = OP_5IRR(c.opirr(p.As), uint32(REGTMP), uint32(p.From.Reg), uint32(hint))
 
 	case 49:
 		if p.As == ANOOP {
@@ -3691,6 +3760,14 @@ func (c *ctxt0) oprr(a obj.As) uint32 {
 		return 0x1da74d << 10 // xvfrint.s
 	case AXVFRINTD:
 		return 0x1da74e << 10 // xvfrint.d
+	case AVFCLASSF:
+		return 0x1ca735 << 10 // vfclass.s
+	case AVFCLASSD:
+		return 0x1ca736 << 10 // vfclass.d
+	case AXVFCLASSF:
+		return 0x1da735 << 10 // xvfclass.s
+	case AXVFCLASSD:
+		return 0x1da736 << 10 // xvfclass.d
 	case AVSETEQV:
 		return 0x1ca726<<10 | 0x0<<3 // vseteqz.v
 	case AVSETNEV:
@@ -3824,7 +3901,8 @@ func (c *ctxt0) opirr(a obj.As) uint32 {
 		return 0x12<<26 | 0x1<<8
 	case ABFPF:
 		return 0x12<<26 | 0x0<<8
-
+	case APRELDX:
+		return 0x07058 << 15 // preldx
 	case AMOVB,
 		AMOVBU:
 		return 0x0a4 << 22
@@ -4046,6 +4124,15 @@ func (c *ctxt0) opirir(a obj.As) uint32 {
 		return 0x3<<21 | 0x1<<15 // bstrpick.w
 	case ABSTRPICKV:
 		return 0x3 << 22 // bstrpick.d
+	}
+
+	return 0
+}
+
+func (c *ctxt0) opiir(a obj.As) uint32 {
+	switch a {
+	case APRELD:
+		return 0x0AB << 22 // preld
 	}
 
 	return 0

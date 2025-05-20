@@ -8,6 +8,7 @@ import (
 	"internal/bytealg"
 	"internal/goarch"
 	"internal/runtime/atomic"
+	"internal/runtime/strconv"
 	"unsafe"
 )
 
@@ -336,9 +337,10 @@ var debug struct {
 	// debug.malloc is used as a combined debug check
 	// in the malloc function and should be set
 	// if any of the below debug options is != 0.
-	malloc    bool
-	inittrace int32
-	sbrk      int32
+	malloc          bool
+	inittrace       int32
+	sbrk            int32
+	checkfinalizers int32
 	// traceallocfree controls whether execution traces contain
 	// detailed trace data about memory allocation. This value
 	// affects debug.malloc only if it is != 0 and the execution
@@ -372,6 +374,7 @@ var dbgvars = []*dbgVar{
 	{name: "decoratemappings", value: &debug.decoratemappings, def: 1},
 	{name: "disablethp", value: &debug.disablethp},
 	{name: "dontfreezetheworld", value: &debug.dontfreezetheworld},
+	{name: "checkfinalizers", value: &debug.checkfinalizers},
 	{name: "efence", value: &debug.efence},
 	{name: "gccheckmark", value: &debug.gccheckmark},
 	{name: "gcpacertrace", value: &debug.gcpacertrace},
@@ -437,7 +440,7 @@ func parsedebugvars() {
 	// apply environment settings
 	parsegodebug(godebug, nil)
 
-	debug.malloc = (debug.inittrace | debug.sbrk) != 0
+	debug.malloc = (debug.inittrace | debug.sbrk | debug.checkfinalizers) != 0
 	debug.profstackdepth = min(debug.profstackdepth, maxProfStackDepth)
 
 	// Disable async preemption in checkmark mode. The following situation is
@@ -526,13 +529,13 @@ func parsegodebug(godebug string, seen map[string]bool) {
 		// is int, not int32, and should only be updated
 		// if specified in GODEBUG.
 		if seen == nil && key == "memprofilerate" {
-			if n, ok := atoi(value); ok {
+			if n, ok := strconv.Atoi(value); ok {
 				MemProfileRate = n
 			}
 		} else {
 			for _, v := range dbgvars {
 				if v.name == key {
-					if n, ok := atoi32(value); ok {
+					if n, ok := strconv.Atoi32(value); ok {
 						if seen == nil && v.value != nil {
 							*v.value = n
 						} else if v.atomic != nil {
@@ -572,7 +575,7 @@ func setTraceback(level string) {
 		fallthrough
 	default:
 		t = tracebackAll
-		if n, ok := atoi(level); ok && n == int(uint32(n)) {
+		if n, ok := strconv.Atoi(level); ok && n == int(uint32(n)) {
 			t |= uint32(n) << tracebackShift
 		}
 	}

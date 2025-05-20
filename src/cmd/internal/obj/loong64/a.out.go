@@ -663,6 +663,10 @@ const (
 	ABSTRPICKW
 	ABSTRPICKV
 
+	// 2.2.5.4. Prefetch Instructions
+	APRELD
+	APRELDX
+
 	// 2.2.9. CRC Check Instructions
 	ACRCWBW
 	ACRCWHW
@@ -966,6 +970,11 @@ const (
 	AXVMULD
 	AXVDIVF
 	AXVDIVD
+
+	AVFCLASSF
+	AVFCLASSD
+	AXVFCLASSF
+	AXVFCLASSD
 
 	// LSX and LASX floating point conversion instructions
 	AVFRINTRNEF

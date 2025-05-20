@@ -286,7 +286,18 @@ func canMergeLoadClobber(target, load, x *Value) bool {
 	// approximate x dying with:
 	//  1) target is x's only use.
 	//  2) target is not in a deeper loop than x.
-	if x.Uses != 1 {
+	switch {
+	case x.Uses == 2 && x.Op == OpPhi && len(x.Args) == 2 && (x.Args[0] == target || x.Args[1] == target) && target.Uses == 1:
+		// This is a simple detector to determine that x is probably
+		// not live after target. (It does not need to be perfect,
+		// regalloc will issue a reg-reg move to save it if we are wrong.)
+		// We have:
+		//   x = Phi(?, target)
+		//   target = Op(load, x)
+		// Because target has only one use as a Phi argument, we can schedule it
+		// very late. Hopefully, later than the other use of x. (The other use died
+		// between x and target, or exists on another branch entirely).
+	case x.Uses > 1:
 		return false
 	}
 	loopnest := x.Block.Func.loopnest()
@@ -522,6 +533,11 @@ func is8Bit(n int64) bool {
 // isU8Bit reports whether n can be represented as an unsigned 8 bit integer.
 func isU8Bit(n int64) bool {
 	return n == int64(uint8(n))
+}
+
+// is12Bit reports whether n can be represented as a signed 12 bit integer.
+func is12Bit(n int64) bool {
+	return -(1<<11) <= n && n < (1<<11)
 }
 
 // isU12Bit reports whether n can be represented as an unsigned 12 bit integer.
@@ -1485,7 +1501,9 @@ func isInlinableMemmove(dst, src *Value, sz int64, c *Config) bool {
 	switch c.arch {
 	case "amd64":
 		return sz <= 16 || (sz < 1024 && disjoint(dst, sz, src, sz))
-	case "386", "arm64":
+	case "arm64":
+		return sz <= 64 || (sz <= 1024 && disjoint(dst, sz, src, sz))
+	case "386":
 		return sz <= 8
 	case "s390x", "ppc64", "ppc64le":
 		return sz <= 8 || disjoint(dst, sz, src, sz)

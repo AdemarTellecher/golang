@@ -674,6 +674,10 @@ func rewriteValueLOONG64(v *Value) bool {
 		return rewriteValueLOONG64_OpPopCount32(v)
 	case OpPopCount64:
 		return rewriteValueLOONG64_OpPopCount64(v)
+	case OpPrefetchCache:
+		return rewriteValueLOONG64_OpPrefetchCache(v)
+	case OpPrefetchCacheStreamed:
+		return rewriteValueLOONG64_OpPrefetchCacheStreamed(v)
 	case OpPubBarrier:
 		v.Op = OpLOONG64LoweredPubBarrier
 		return true
@@ -5421,6 +5425,77 @@ func rewriteValueLOONG64_OpLOONG64MULV(v *Value) bool {
 }
 func rewriteValueLOONG64_OpLOONG64NEGV(v *Value) bool {
 	v_0 := v.Args[0]
+	b := v.Block
+	// match: (NEGV (SUBV x y))
+	// result: (SUBV y x)
+	for {
+		if v_0.Op != OpLOONG64SUBV {
+			break
+		}
+		y := v_0.Args[1]
+		x := v_0.Args[0]
+		v.reset(OpLOONG64SUBV)
+		v.AddArg2(y, x)
+		return true
+	}
+	// match: (NEGV <t> s:(ADDVconst [c] (SUBV x y)))
+	// cond: s.Uses == 1 && is12Bit(-c)
+	// result: (ADDVconst [-c] (SUBV <t> y x))
+	for {
+		t := v.Type
+		s := v_0
+		if s.Op != OpLOONG64ADDVconst {
+			break
+		}
+		c := auxIntToInt64(s.AuxInt)
+		s_0 := s.Args[0]
+		if s_0.Op != OpLOONG64SUBV {
+			break
+		}
+		y := s_0.Args[1]
+		x := s_0.Args[0]
+		if !(s.Uses == 1 && is12Bit(-c)) {
+			break
+		}
+		v.reset(OpLOONG64ADDVconst)
+		v.AuxInt = int64ToAuxInt(-c)
+		v0 := b.NewValue0(v.Pos, OpLOONG64SUBV, t)
+		v0.AddArg2(y, x)
+		v.AddArg(v0)
+		return true
+	}
+	// match: (NEGV (NEGV x))
+	// result: x
+	for {
+		if v_0.Op != OpLOONG64NEGV {
+			break
+		}
+		x := v_0.Args[0]
+		v.copyOf(x)
+		return true
+	}
+	// match: (NEGV <t> s:(ADDVconst [c] (NEGV x)))
+	// cond: s.Uses == 1 && is12Bit(-c)
+	// result: (ADDVconst [-c] x)
+	for {
+		s := v_0
+		if s.Op != OpLOONG64ADDVconst {
+			break
+		}
+		c := auxIntToInt64(s.AuxInt)
+		s_0 := s.Args[0]
+		if s_0.Op != OpLOONG64NEGV {
+			break
+		}
+		x := s_0.Args[0]
+		if !(s.Uses == 1 && is12Bit(-c)) {
+			break
+		}
+		v.reset(OpLOONG64ADDVconst)
+		v.AuxInt = int64ToAuxInt(-c)
+		v.AddArg(x)
+		return true
+	}
 	// match: (NEGV (MOVVconst [c]))
 	// result: (MOVVconst [-c])
 	for {
@@ -6759,6 +6834,18 @@ func rewriteValueLOONG64_OpLOONG64SUBV(v *Value) bool {
 		v.reset(OpLOONG64SUBVconst)
 		v.AuxInt = int64ToAuxInt(c)
 		v.AddArg(x)
+		return true
+	}
+	// match: (SUBV x (NEGV y))
+	// result: (ADDV x y)
+	for {
+		x := v_0
+		if v_1.Op != OpLOONG64NEGV {
+			break
+		}
+		y := v_1.Args[0]
+		v.reset(OpLOONG64ADDV)
+		v.AddArg2(x, y)
 		return true
 	}
 	// match: (SUBV x x)
@@ -8992,6 +9079,34 @@ func rewriteValueLOONG64_OpPopCount64(v *Value) bool {
 		v1.AddArg(x)
 		v0.AddArg(v1)
 		v.AddArg(v0)
+		return true
+	}
+}
+func rewriteValueLOONG64_OpPrefetchCache(v *Value) bool {
+	v_1 := v.Args[1]
+	v_0 := v.Args[0]
+	// match: (PrefetchCache addr mem)
+	// result: (PRELD addr mem [0])
+	for {
+		addr := v_0
+		mem := v_1
+		v.reset(OpLOONG64PRELD)
+		v.AuxInt = int64ToAuxInt(0)
+		v.AddArg2(addr, mem)
+		return true
+	}
+}
+func rewriteValueLOONG64_OpPrefetchCacheStreamed(v *Value) bool {
+	v_1 := v.Args[1]
+	v_0 := v.Args[0]
+	// match: (PrefetchCacheStreamed addr mem)
+	// result: (PRELDX addr mem [(((512 << 1) + (1 << 12)) << 5) + 2])
+	for {
+		addr := v_0
+		mem := v_1
+		v.reset(OpLOONG64PRELDX)
+		v.AuxInt = int64ToAuxInt((((512 << 1) + (1 << 12)) << 5) + 2)
+		v.AddArg2(addr, mem)
 		return true
 	}
 }

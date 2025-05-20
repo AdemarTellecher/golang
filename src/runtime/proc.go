@@ -11,6 +11,7 @@ import (
 	"internal/goos"
 	"internal/runtime/atomic"
 	"internal/runtime/exithook"
+	"internal/runtime/strconv"
 	"internal/runtime/sys"
 	"internal/stringslite"
 	"unsafe"
@@ -899,8 +900,8 @@ func schedinit() {
 
 	lock(&sched.lock)
 	sched.lastpoll.Store(nanotime())
-	procs := ncpu
-	if n, ok := atoi32(gogetenv("GOMAXPROCS")); ok && n > 0 {
+	procs := numCPUStartup
+	if n, ok := strconv.Atoi32(gogetenv("GOMAXPROCS")); ok && n > 0 {
 		procs = n
 	}
 	if procresize(procs) != nil {
@@ -3396,8 +3397,12 @@ top:
 	// blocked thread (e.g. it has already returned from netpoll, but does
 	// not set lastpoll yet), this thread will do blocking netpoll below
 	// anyway.
-	if netpollinited() && netpollAnyWaiters() && sched.lastpoll.Load() != 0 {
-		if list, delta := netpoll(0); !list.empty() { // non-blocking
+	// We only poll from one thread at a time to avoid kernel contention
+	// on machines with many cores.
+	if netpollinited() && netpollAnyWaiters() && sched.lastpoll.Load() != 0 && sched.pollingNet.Swap(1) == 0 {
+		list, delta := netpoll(0)
+		sched.pollingNet.Store(0)
+		if !list.empty() { // non-blocking
 			gp := list.pop()
 			injectglist(&list)
 			netpollAdjustWaiters(delta)
@@ -5738,6 +5743,8 @@ func (pp *p) destroy() {
 		pp.raceprocctx = 0
 	}
 	pp.gcAssistTime = 0
+	gcCleanups.queued += pp.cleanupsQueued
+	pp.cleanupsQueued = 0
 	pp.status = _Pdead
 }
 
@@ -7225,7 +7232,7 @@ func internal_sync_runtime_canSpin(i int) bool {
 	// GOMAXPROCS>1 and there is at least one other running P and local runq is empty.
 	// As opposed to runtime mutex we don't do passive spinning here,
 	// because there can be work on global runq or on other Ps.
-	if i >= active_spin || ncpu <= 1 || gomaxprocs <= sched.npidle.Load()+sched.nmspinning.Load()+1 {
+	if i >= active_spin || numCPUStartup <= 1 || gomaxprocs <= sched.npidle.Load()+sched.nmspinning.Load()+1 {
 		return false
 	}
 	if p := getg().m.p.ptr(); !runqempty(p) {

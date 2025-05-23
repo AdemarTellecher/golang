@@ -44,7 +44,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -53,17 +52,13 @@ import (
 	"io"
 	"log"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path"
 	"path/filepath"
 	"strings"
-	"time"
 
-	"cmd/internal/browser"
-	"cmd/internal/quoted"
 	"cmd/internal/telemetry/counter"
 )
 
@@ -126,6 +121,31 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 			return err
 		}
 	}
+	if serveHTTP {
+		// Special case: if there are no arguments, try to go to an appropriate page
+		// depending on whether we're in a module or workspace. The pkgsite homepage
+		// is often not the most useful page.
+		if len(flagSet.Args()) == 0 {
+			mod, err := runCmd(append(os.Environ(), "GOWORK=off"), "go", "list", "-m")
+			if err == nil && mod != "" && mod != "command-line-arguments" {
+				// If there's a module, go to the module's doc page.
+				return doPkgsite(mod)
+			}
+			gowork, err := runCmd(nil, "go", "env", "GOWORK")
+			if err == nil && gowork != "" {
+				// Outside a module, but in a workspace, go to the home page
+				// with links to each of the modules' pages.
+				return doPkgsite("")
+			}
+			// Outside a module or workspace, go to the documentation for the standard library.
+			return doPkgsite("std")
+		}
+
+		// If args are provided, we need to figure out which page to open on the pkgsite
+		// instance. Run the logic below to determine a match for a symbol, method,
+		// or field, but don't actually print the documentation to the output.
+		writer = io.Discard
+	}
 	var paths []string
 	var symbol, method string
 	// Loop until something is printed.
@@ -163,57 +183,58 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 			panic(e)
 		}()
 
-		if serveHTTP {
-			return doPkgsite(pkg, symbol, method)
-		}
+		var found bool
 		switch {
 		case symbol == "":
 			pkg.packageDoc() // The package exists, so we got some output.
-			return
+			found = true
 		case method == "":
 			if pkg.symbolDoc(symbol) {
-				return
+				found = true
 			}
 		case pkg.printMethodDoc(symbol, method):
-			return
+			found = true
 		case pkg.printFieldDoc(symbol, method):
-			return
+			found = true
+		}
+		if found {
+			if serveHTTP {
+				path, err := objectPath(userPath, pkg, symbol, method)
+				if err != nil {
+					return err
+				}
+				return doPkgsite(path)
+			}
+			return nil
 		}
 	}
 }
 
-func doPkgsite(pkg *Package, symbol, method string) error {
-	ctx := context.Background()
-
-	cmdline := "go run golang.org/x/pkgsite/cmd/pkgsite@latest -gorepo=" + buildCtx.GOROOT
-	words, err := quoted.Split(cmdline)
-	port, err := pickUnusedPort()
-	if err != nil {
-		return fmt.Errorf("failed to find port for documentation server: %v", err)
+func runCmd(env []string, cmdline ...string) (string, error) {
+	var stdout, stderr strings.Builder
+	cmd := exec.Command(cmdline[0], cmdline[1:]...)
+	cmd.Env = env
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("go doc: %s: %v\n%s\n", strings.Join(cmdline, " "), err, stderr.String())
 	}
-	addr := fmt.Sprintf("localhost:%d", port)
-	words = append(words, fmt.Sprintf("-http=%s", addr))
-	cmd := exec.CommandContext(context.Background(), words[0], words[1:]...)
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
-	// Turn off the default signal handler for SIGINT (and SIGQUIT on Unix)
-	// and instead wait for the child process to handle the signal and
-	// exit before exiting ourselves.
-	signal.Ignore(signalsToIgnore...)
+	return strings.TrimSpace(stdout.String()), nil
+}
 
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("starting pkgsite: %v", err)
-	}
-
-	// Wait for pkgsite to became available.
-	if !waitAvailable(ctx, addr) {
-		cmd.Cancel()
-		cmd.Wait()
-		return errors.New("could not connect to local documentation server")
+func objectPath(userPath string, pkg *Package, symbol, method string) (string, error) {
+	var err error
+	path := pkg.build.ImportPath
+	if path == "." {
+		// go/build couldn't determine the import path, probably
+		// because this was a relative path into a module. Use
+		// go list to get the import path.
+		path, err = runCmd(nil, "go", "list", userPath)
+		if err != nil {
+			return "", err
+		}
 	}
 
-	// Open web browser.
-	path := path.Join("http://"+addr, pkg.build.ImportPath)
 	object := symbol
 	if symbol != "" && method != "" {
 		object = symbol + "." + method
@@ -221,16 +242,54 @@ func doPkgsite(pkg *Package, symbol, method string) error {
 	if object != "" {
 		path = path + "#" + object
 	}
-	if ok := browser.Open(path); !ok {
-		cmd.Cancel()
-		cmd.Wait()
-		return errors.New("failed to open browser")
+	return path, nil
+}
+
+func doPkgsite(urlPath string) error {
+	port, err := pickUnusedPort()
+	if err != nil {
+		return fmt.Errorf("failed to find port for documentation server: %v", err)
+	}
+	addr := fmt.Sprintf("localhost:%d", port)
+	path := path.Join("http://"+addr, urlPath)
+
+	// Turn off the default signal handler for SIGINT (and SIGQUIT on Unix)
+	// and instead wait for the child process to handle the signal and
+	// exit before exiting ourselves.
+	signal.Ignore(signalsToIgnore...)
+
+	// Prepend the local download cache to GOPROXY to get around deprecation checks.
+	env := os.Environ()
+	vars, err := runCmd(nil, "go", "env", "GOPROXY", "GOMODCACHE")
+	fields := strings.Fields(vars)
+	if err == nil && len(fields) == 2 {
+		goproxy, gomodcache := fields[0], fields[1]
+		goproxy = "file://" + filepath.Join(gomodcache, "cache", "download") + "," + goproxy
+		env = append(env, "GOPROXY="+goproxy)
 	}
 
-	// Wait for child to terminate. We expect the child process to receive signals from
-	// this terminal and terminate in a timely manner, so this process will terminate
-	// soon after.
-	return cmd.Wait()
+	const version = "v0.0.0-20250520201116-40659211760d"
+	cmd := exec.Command("go", "run", "golang.org/x/pkgsite/cmd/internal/doc@"+version,
+		"-gorepo", buildCtx.GOROOT,
+		"-http", addr,
+		"-open", path)
+	cmd.Env = env
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			// Exit with the same exit status as pkgsite to avoid
+			// printing of "exit status" error messages.
+			// Any relevant messages have already been printed
+			// to stdout or stderr.
+			os.Exit(ee.ExitCode())
+		}
+		return err
+	}
+
+	return nil
 }
 
 // pickUnusedPort finds an unused port by trying to listen on port 0
@@ -247,24 +306,6 @@ func pickUnusedPort() (int, error) {
 		return 0, err
 	}
 	return port, nil
-}
-
-func waitAvailable(ctx context.Context, addr string) bool {
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	for ctx.Err() == nil {
-		req, err := http.NewRequestWithContext(ctx, "HEAD", "http://"+addr, nil)
-		if err != nil {
-			log.Println(err)
-			return false
-		}
-		resp, err := http.DefaultClient.Do(req)
-		if err == nil {
-			resp.Body.Close()
-			return true
-		}
-	}
-	return false
 }
 
 // failMessage creates a nicely formatted error message when there is no result to show.

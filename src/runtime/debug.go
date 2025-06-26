@@ -39,8 +39,22 @@ func GOMAXPROCS(n int) int {
 
 	lock(&sched.lock)
 	ret := int(gomaxprocs)
+	if n <= 0 {
+		unlock(&sched.lock)
+		return ret
+	}
+	// Set early so we can wait for sysmon befor STW. See comment on
+	// computeMaxProcsLock.
+	sched.customGOMAXPROCS = true
 	unlock(&sched.lock)
-	if n <= 0 || n == ret {
+
+	// Wait for sysmon to complete running defaultGOMAXPROCS.
+	lock(&computeMaxProcsLock)
+	unlock(&computeMaxProcsLock)
+
+	if n == ret {
+		// sched.customGOMAXPROCS set, but no need to actually STW
+		// since the gomaxprocs itself isn't changing.
 		return ret
 	}
 
@@ -51,7 +65,6 @@ func GOMAXPROCS(n int) int {
 	// TODO(prattmic): this could use a nicer API. Perhaps add it to the
 	// stw parameter?
 	newprocs = int32(n)
-	newprocsCustom = true
 
 	startTheWorldGC(stw)
 	return ret
@@ -91,7 +104,9 @@ func SetDefaultGOMAXPROCS() {
 	// TODO(prattmic): this could use a nicer API. Perhaps add it to the
 	// stw parameter?
 	newprocs = procs
-	newprocsCustom = false
+	lock(&sched.lock)
+	sched.customGOMAXPROCS = false
+	unlock(&sched.lock)
 
 	startTheWorldGC(stw)
 }

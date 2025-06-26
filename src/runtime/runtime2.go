@@ -1093,9 +1093,10 @@ const (
 	waitReasonGCWeakToStrongWait                      // "GC weak to strong wait"
 	waitReasonSynctestRun                             // "synctest.Run"
 	waitReasonSynctestWait                            // "synctest.Wait"
-	waitReasonSynctestChanReceive                     // "chan receive (synctest)"
-	waitReasonSynctestChanSend                        // "chan send (synctest)"
-	waitReasonSynctestSelect                          // "select (synctest)"
+	waitReasonSynctestChanReceive                     // "chan receive (durable)"
+	waitReasonSynctestChanSend                        // "chan send (durable)"
+	waitReasonSynctestSelect                          // "select (durable)"
+	waitReasonSynctestWaitGroupWait                   // "sync.WaitGroup.Wait (durable)"
 	waitReasonCleanupWait                             // "cleanup wait"
 )
 
@@ -1142,9 +1143,10 @@ var waitReasonStrings = [...]string{
 	waitReasonGCWeakToStrongWait:    "GC weak to strong wait",
 	waitReasonSynctestRun:           "synctest.Run",
 	waitReasonSynctestWait:          "synctest.Wait",
-	waitReasonSynctestChanReceive:   "chan receive (synctest)",
-	waitReasonSynctestChanSend:      "chan send (synctest)",
-	waitReasonSynctestSelect:        "select (synctest)",
+	waitReasonSynctestChanReceive:   "chan receive (durable)",
+	waitReasonSynctestChanSend:      "chan send (durable)",
+	waitReasonSynctestSelect:        "select (durable)",
+	waitReasonSynctestWaitGroupWait: "sync.WaitGroup.Wait (durable)",
 	waitReasonCleanupWait:           "cleanup wait",
 }
 
@@ -1161,17 +1163,17 @@ func (w waitReason) isMutexWait() bool {
 		w == waitReasonSyncRWMutexLock
 }
 
-func (w waitReason) isWaitingForGC() bool {
-	return isWaitingForGC[w]
+func (w waitReason) isWaitingForSuspendG() bool {
+	return isWaitingForSuspendG[w]
 }
 
-// isWaitingForGC indicates that a goroutine is only entering _Gwaiting and
-// setting a waitReason because it needs to be able to let the GC take ownership
-// of its stack. The G is always actually executing on the system stack, in
-// these cases.
+// isWaitingForSuspendG indicates that a goroutine is only entering _Gwaiting and
+// setting a waitReason because it needs to be able to let the suspendG
+// (used by the GC and the execution tracer) take ownership of its stack.
+// The G is always actually executing on the system stack in these cases.
 //
 // TODO(mknyszek): Consider replacing this with a new dedicated G status.
-var isWaitingForGC = [len(waitReasonStrings)]bool{
+var isWaitingForSuspendG = [len(waitReasonStrings)]bool{
 	waitReasonStoppingTheWorld:      true,
 	waitReasonGCMarkTermination:     true,
 	waitReasonGarbageCollection:     true,
@@ -1190,28 +1192,27 @@ func (w waitReason) isIdleInSynctest() bool {
 
 // isIdleInSynctest indicates that a goroutine is considered idle by synctest.Wait.
 var isIdleInSynctest = [len(waitReasonStrings)]bool{
-	waitReasonChanReceiveNilChan:  true,
-	waitReasonChanSendNilChan:     true,
-	waitReasonSelectNoCases:       true,
-	waitReasonSleep:               true,
-	waitReasonSyncCondWait:        true,
-	waitReasonSyncWaitGroupWait:   true,
-	waitReasonCoroutine:           true,
-	waitReasonSynctestRun:         true,
-	waitReasonSynctestWait:        true,
-	waitReasonSynctestChanReceive: true,
-	waitReasonSynctestChanSend:    true,
-	waitReasonSynctestSelect:      true,
+	waitReasonChanReceiveNilChan:    true,
+	waitReasonChanSendNilChan:       true,
+	waitReasonSelectNoCases:         true,
+	waitReasonSleep:                 true,
+	waitReasonSyncCondWait:          true,
+	waitReasonSynctestWaitGroupWait: true,
+	waitReasonCoroutine:             true,
+	waitReasonSynctestRun:           true,
+	waitReasonSynctestWait:          true,
+	waitReasonSynctestChanReceive:   true,
+	waitReasonSynctestChanSend:      true,
+	waitReasonSynctestSelect:        true,
 }
 
 var (
-	allm           *m
-	gomaxprocs     int32
-	numCPUStartup  int32
-	forcegc        forcegcstate
-	sched          schedt
-	newprocs       int32
-	newprocsCustom bool // newprocs value is manually set via runtime.GOMAXPROCS.
+	allm          *m
+	gomaxprocs    int32
+	numCPUStartup int32
+	forcegc       forcegcstate
+	sched         schedt
+	newprocs      int32
 )
 
 var (

@@ -280,7 +280,7 @@ func TestBuildForTvOS(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("skipping on non-darwin platform")
 	}
-	if testing.Short() && os.Getenv("GO_BUILDER_NAME") == "" {
+	if testing.Short() && testenv.Builder() == "" {
 		t.Skip("skipping in -short mode with $GO_BUILDER_NAME empty")
 	}
 	if err := testenv.Command(t, "xcrun", "--help").Run(); err != nil {
@@ -1613,6 +1613,7 @@ func TestCheckLinkname(t *testing.T) {
 		{"coro2.go", false},
 		// pull linkname of a builtin symbol is not ok
 		{"builtin.go", false},
+		{"addmoduledata.go", false},
 		// legacy bad linkname is ok, for now
 		{"fastrand.go", true},
 		{"badlinkname.go", true},

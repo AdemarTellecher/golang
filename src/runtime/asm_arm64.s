@@ -7,6 +7,78 @@
 #include "tls_arm64.h"
 #include "funcdata.h"
 #include "textflag.h"
+#include "cgo/abi_arm64.h"
+
+// _rt0_arm64 is common startup code for most arm64 systems when using
+// internal linking. This is the entry point for the program from the
+// kernel for an ordinary -buildmode=exe program. The stack holds the
+// number of arguments and the C-style argv.
+TEXT _rt0_arm64(SB),NOSPLIT,$0
+	MOVD	0(RSP), R0	// argc
+	ADD	$8, RSP, R1	// argv
+	JMP	runtime·rt0_go(SB)
+
+// main is common startup code for most amd64 systems when using
+// external linking. The C startup code will call the symbol "main"
+// passing argc and argv in the usual C ABI registers R0 and R1.
+TEXT main(SB),NOSPLIT,$0
+	JMP	runtime·rt0_go(SB)
+
+// _rt0_arm64_lib is common startup code for most arm64 systems when
+// using -buildmode=c-archive or -buildmode=c-shared. The linker will
+// arrange to invoke this function as a global constructor (for
+// c-archive) or when the shared library is loaded (for c-shared).
+// We expect argc and argv to be passed in the usual C ABI registers
+// R0 and R1.
+TEXT _rt0_arm64_lib(SB),NOSPLIT,$184
+	// Preserve callee-save registers.
+	SAVE_R19_TO_R28(24)
+	SAVE_F8_TO_F15(104)
+
+	// Initialize g as null in case of using g later e.g. sigaction in cgo_sigaction.go
+	MOVD	ZR, g
+
+	MOVD	R0, _rt0_arm64_lib_argc<>(SB)
+	MOVD	R1, _rt0_arm64_lib_argv<>(SB)
+
+	// Synchronous initialization.
+	MOVD	$runtime·libpreinit(SB), R4
+	BL	(R4)
+
+	// Create a new thread to do the runtime initialization and return.
+	MOVD	_cgo_sys_thread_create(SB), R4
+	CBZ	R4, nocgo
+	MOVD	$_rt0_arm64_lib_go(SB), R0
+	MOVD	$0, R1
+	SUB	$16, RSP		// reserve 16 bytes for sp-8 where fp may be saved.
+	BL	(R4)
+	ADD	$16, RSP
+	B	restore
+
+nocgo:
+	MOVD	$0x800000, R0                     // stacksize = 8192KB
+	MOVD	$_rt0_arm64_lib_go(SB), R1
+	MOVD	R0, 8(RSP)
+	MOVD	R1, 16(RSP)
+	MOVD	$runtime·newosproc0(SB),R4
+	BL	(R4)
+
+restore:
+	// Restore callee-save registers.
+	RESTORE_R19_TO_R28(24)
+	RESTORE_F8_TO_F15(104)
+	RET
+
+TEXT _rt0_arm64_lib_go(SB),NOSPLIT,$0
+	MOVD	_rt0_arm64_lib_argc<>(SB), R0
+	MOVD	_rt0_arm64_lib_argv<>(SB), R1
+	MOVD	$runtime·rt0_go(SB),R4
+	B	(R4)
+
+DATA _rt0_arm64_lib_argc<>(SB)/8, $0
+GLOBL _rt0_arm64_lib_argc<>(SB),NOPTR, $8
+DATA _rt0_arm64_lib_argv<>(SB)/8, $0
+GLOBL _rt0_arm64_lib_argv<>(SB),NOPTR, $8
 
 #ifdef GOARM64_LSE
 DATA no_lse_msg<>+0x00(SB)/64, $"This program can only run on ARM64 processors with LSE support.\n"
@@ -1574,70 +1646,22 @@ TEXT runtime·debugCallPanicked(SB),NOSPLIT,$16-16
 	BREAK
 	RET
 
-// Note: these functions use a special calling convention to save generated code space.
-// Arguments are passed in registers, but the space for those arguments are allocated
-// in the caller's stack frame. These stubs write the args into that stack space and
-// then tail call to the corresponding runtime handler.
-// The tail call makes these stubs disappear in backtraces.
-//
-// Defined as ABIInternal since the compiler generates ABIInternal
-// calls to it directly and it does not use the stack-based Go ABI.
-TEXT runtime·panicIndex<ABIInternal>(SB),NOSPLIT,$0-16
-	JMP	runtime·goPanicIndex<ABIInternal>(SB)
-TEXT runtime·panicIndexU<ABIInternal>(SB),NOSPLIT,$0-16
-	JMP	runtime·goPanicIndexU<ABIInternal>(SB)
-TEXT runtime·panicSliceAlen<ABIInternal>(SB),NOSPLIT,$0-16
-	MOVD	R1, R0
-	MOVD	R2, R1
-	JMP	runtime·goPanicSliceAlen<ABIInternal>(SB)
-TEXT runtime·panicSliceAlenU<ABIInternal>(SB),NOSPLIT,$0-16
-	MOVD	R1, R0
-	MOVD	R2, R1
-	JMP	runtime·goPanicSliceAlenU<ABIInternal>(SB)
-TEXT runtime·panicSliceAcap<ABIInternal>(SB),NOSPLIT,$0-16
-	MOVD	R1, R0
-	MOVD	R2, R1
-	JMP	runtime·goPanicSliceAcap<ABIInternal>(SB)
-TEXT runtime·panicSliceAcapU<ABIInternal>(SB),NOSPLIT,$0-16
-	MOVD	R1, R0
-	MOVD	R2, R1
-	JMP	runtime·goPanicSliceAcapU<ABIInternal>(SB)
-TEXT runtime·panicSliceB<ABIInternal>(SB),NOSPLIT,$0-16
-	JMP	runtime·goPanicSliceB<ABIInternal>(SB)
-TEXT runtime·panicSliceBU<ABIInternal>(SB),NOSPLIT,$0-16
-	JMP	runtime·goPanicSliceBU<ABIInternal>(SB)
-TEXT runtime·panicSlice3Alen<ABIInternal>(SB),NOSPLIT,$0-16
-	MOVD	R2, R0
-	MOVD	R3, R1
-	JMP	runtime·goPanicSlice3Alen<ABIInternal>(SB)
-TEXT runtime·panicSlice3AlenU<ABIInternal>(SB),NOSPLIT,$0-16
-	MOVD	R2, R0
-	MOVD	R3, R1
-	JMP	runtime·goPanicSlice3AlenU<ABIInternal>(SB)
-TEXT runtime·panicSlice3Acap<ABIInternal>(SB),NOSPLIT,$0-16
-	MOVD	R2, R0
-	MOVD	R3, R1
-	JMP	runtime·goPanicSlice3Acap<ABIInternal>(SB)
-TEXT runtime·panicSlice3AcapU<ABIInternal>(SB),NOSPLIT,$0-16
-	MOVD	R2, R0
-	MOVD	R3, R1
-	JMP	runtime·goPanicSlice3AcapU<ABIInternal>(SB)
-TEXT runtime·panicSlice3B<ABIInternal>(SB),NOSPLIT,$0-16
-	MOVD	R1, R0
-	MOVD	R2, R1
-	JMP	runtime·goPanicSlice3B<ABIInternal>(SB)
-TEXT runtime·panicSlice3BU<ABIInternal>(SB),NOSPLIT,$0-16
-	MOVD	R1, R0
-	MOVD	R2, R1
-	JMP	runtime·goPanicSlice3BU<ABIInternal>(SB)
-TEXT runtime·panicSlice3C<ABIInternal>(SB),NOSPLIT,$0-16
-	JMP	runtime·goPanicSlice3C<ABIInternal>(SB)
-TEXT runtime·panicSlice3CU<ABIInternal>(SB),NOSPLIT,$0-16
-	JMP	runtime·goPanicSlice3CU<ABIInternal>(SB)
-TEXT runtime·panicSliceConvert<ABIInternal>(SB),NOSPLIT,$0-16
-	MOVD	R2, R0
-	MOVD	R3, R1
-	JMP	runtime·goPanicSliceConvert<ABIInternal>(SB)
+TEXT runtime·panicBounds<ABIInternal>(SB),NOSPLIT,$144-0
+	NO_LOCAL_POINTERS
+	// Save all 16 int registers that could have an index in them.
+	// They may be pointers, but if they are they are dead.
+	STP	(R0, R1), 24(RSP)
+	STP	(R2, R3), 40(RSP)
+	STP	(R4, R5), 56(RSP)
+	STP	(R6, R7), 72(RSP)
+	STP	(R8, R9), 88(RSP)
+	STP	(R10, R11), 104(RSP)
+	STP	(R12, R13), 120(RSP)
+	STP	(R14, R15), 136(RSP)
+	MOVD	LR, R0		// PC immediately after call to panicBounds
+	ADD	$24, RSP, R1	// pointer to save area
+	CALL	runtime·panicBounds64<ABIInternal>(SB)
+	RET
 
 TEXT ·getfp<ABIInternal>(SB),NOSPLIT|NOFRAME,$0
 	MOVD R29, R0

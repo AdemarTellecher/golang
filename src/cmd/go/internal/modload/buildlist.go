@@ -329,7 +329,7 @@ func readModGraph(ctx context.Context, pruning modPruning, roots []module.Versio
 		// so it wouldn't be useful to log when that occurs (because it happens in
 		// normal operation all the time).
 		readModGraphDebugOnce.Do(func() {
-			for _, f := range strings.Split(os.Getenv("GODEBUG"), ",") {
+			for f := range strings.SplitSeq(os.Getenv("GODEBUG"), ",") {
 				switch f {
 				case "lazymod=log":
 					debug.PrintStack()
@@ -656,11 +656,6 @@ func EditBuildList(ctx context.Context, add, mustSelect []module.Version) (chang
 	}
 	requirements = rs
 	return changed, nil
-}
-
-// OverrideRoots edits the global requirement roots by replacing the specific module versions.
-func OverrideRoots(ctx context.Context, replace []module.Version) {
-	requirements = overrideRoots(ctx, requirements, replace)
 }
 
 func overrideRoots(ctx context.Context, rs *Requirements, replace []module.Version) *Requirements {

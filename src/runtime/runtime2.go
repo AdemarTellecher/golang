@@ -466,6 +466,7 @@ type g struct {
 	runnableTime    int64 // the amount of time spent runnable, cleared when running, only used when tracking
 	lockedm         muintptr
 	fipsIndicator   uint8
+	syncSafePoint   bool // set if g is stopped at a synchronous safe point.
 	runningCleanups atomic.Bool
 	sig             uint32
 	writebuf        []byte
@@ -490,6 +491,10 @@ type g struct {
 
 	coroarg *coro // argument during coroutine transfers
 	bubble  *synctestBubble
+
+	// xRegs stores the extended register state if this G has been
+	// asynchronously preempted.
+	xRegs xRegPerG
 
 	// Per-G tracer state.
 	trace gTraceState
@@ -564,6 +569,7 @@ type m struct {
 	needextram      bool
 	g0StackAccurate bool // whether the g0 stack has accurate bounds
 	traceback       uint8
+	allpSnapshot    []*p          // Snapshot of allp for use after dropping P in findRunnable, nil otherwise.
 	ncgocall        uint64        // number of cgo calls in total
 	ncgo            int32         // number of cgo calls currently in progress
 	cgoCallersUse   atomic.Uint32 // if non-zero, cgoCallers in use temporarily
@@ -591,9 +597,7 @@ type m struct {
 	freelink    *m // on sched.freem
 	trace       mTraceState
 
-	// these are here because they are too large to be on the stack
-	// of low-level NOSPLIT functions.
-	libcall    libcall
+	// These are here to avoid using the G stack so the stack can move during the call.
 	libcallpc  uintptr // for cpu profiler
 	libcallsp  uintptr
 	libcallg   guintptr
@@ -760,6 +764,14 @@ type p struct {
 	// gcStopTime is the nanotime timestamp that this P last entered _Pgcstop.
 	gcStopTime int64
 
+	// goroutinesCreated is the total count of goroutines created by this P.
+	goroutinesCreated uint64
+
+	// xRegs is the per-P extended register state used by asynchronous
+	// preemption. This is an empty struct on platforms that don't use extended
+	// register state.
+	xRegs xRegPerP
+
 	// Padding is no longer needed. False sharing is now not a worry because p is large enough
 	// that its size class is an integer multiple of the cache line size (for any of our architectures).
 }
@@ -783,7 +795,8 @@ type schedt struct {
 	nmsys        int32    // number of system m's not counted for deadlock
 	nmfreed      int64    // cumulative number of freed m's
 
-	ngsys atomic.Int32 // number of system goroutines
+	ngsys        atomic.Int32 // number of system goroutines
+	nGsyscallNoP atomic.Int32 // number of goroutines in syscalls without a P
 
 	pidle        puintptr // idle p's
 	npidle       atomic.Int32
@@ -882,6 +895,10 @@ type schedt struct {
 	// M, but waiting for locks within the runtime. This field stores the value
 	// for Ms that have exited.
 	totalRuntimeLockWaitTime atomic.Int64
+
+	// goroutinesCreated (plus the value of goroutinesCreated on each P in allp)
+	// is the sum of all goroutines created by the program.
+	goroutinesCreated atomic.Uint64
 }
 
 // Values for the flags field of a sigTabT.
@@ -998,14 +1015,13 @@ type _defer struct {
 //
 // A _panic value must only ever live on the stack.
 //
-// The argp and link fields are stack pointers, but don't need special
+// The gopanicFP and link fields are stack pointers, but don't need special
 // handling during stack growth: because they are pointer-typed and
 // _panic values only live on the stack, regular stack pointer
 // adjustment takes care of them.
 type _panic struct {
-	argp unsafe.Pointer // pointer to arguments of deferred call run during panic; cannot move - known to liblink
-	arg  any            // argument to panic
-	link *_panic        // link to earlier panic
+	arg  any     // argument to panic
+	link *_panic // link to earlier panic
 
 	// startPC and startSP track where _panic.start was called.
 	startPC uintptr
@@ -1028,6 +1044,8 @@ type _panic struct {
 	repanicked  bool // whether this panic repanicked
 	goexit      bool
 	deferreturn bool
+
+	gopanicFP unsafe.Pointer // frame pointer of the gopanic frame
 }
 
 // savedOpenDeferState tracks the extra state from _panic that's
@@ -1207,7 +1225,9 @@ var isIdleInSynctest = [len(waitReasonStrings)]bool{
 }
 
 var (
-	allm          *m
+	// Linked-list of all Ms. Written under sched.lock, read atomically.
+	allm *m
+
 	gomaxprocs    int32
 	numCPUStartup int32
 	forcegc       forcegcstate

@@ -1379,31 +1379,31 @@ func BenchmarkHandshakeServer(b *testing.B) {
 	})
 	b.Run("ECDHE-P256-RSA", func(b *testing.B) {
 		b.Run("TLSv13", func(b *testing.B) {
-			benchmarkHandshakeServer(b, VersionTLS13, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			benchmarkHandshakeServer(b, VersionTLS13, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 				CurveP256, testRSACertificate, testRSAPrivateKey)
 		})
 		b.Run("TLSv12", func(b *testing.B) {
-			benchmarkHandshakeServer(b, VersionTLS12, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			benchmarkHandshakeServer(b, VersionTLS12, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 				CurveP256, testRSACertificate, testRSAPrivateKey)
 		})
 	})
 	b.Run("ECDHE-P256-ECDSA-P256", func(b *testing.B) {
 		b.Run("TLSv13", func(b *testing.B) {
-			benchmarkHandshakeServer(b, VersionTLS13, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+			benchmarkHandshakeServer(b, VersionTLS13, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
 				CurveP256, testP256Certificate, testP256PrivateKey)
 		})
 		b.Run("TLSv12", func(b *testing.B) {
-			benchmarkHandshakeServer(b, VersionTLS12, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+			benchmarkHandshakeServer(b, VersionTLS12, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
 				CurveP256, testP256Certificate, testP256PrivateKey)
 		})
 	})
 	b.Run("ECDHE-X25519-ECDSA-P256", func(b *testing.B) {
 		b.Run("TLSv13", func(b *testing.B) {
-			benchmarkHandshakeServer(b, VersionTLS13, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+			benchmarkHandshakeServer(b, VersionTLS13, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
 				X25519, testP256Certificate, testP256PrivateKey)
 		})
 		b.Run("TLSv12", func(b *testing.B) {
-			benchmarkHandshakeServer(b, VersionTLS12, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+			benchmarkHandshakeServer(b, VersionTLS12, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
 				X25519, testP256Certificate, testP256PrivateKey)
 		})
 	})
@@ -1412,11 +1412,11 @@ func BenchmarkHandshakeServer(b *testing.B) {
 			b.Fatal("test ECDSA key doesn't use curve P-521")
 		}
 		b.Run("TLSv13", func(b *testing.B) {
-			benchmarkHandshakeServer(b, VersionTLS13, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+			benchmarkHandshakeServer(b, VersionTLS13, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
 				CurveP521, testECDSACertificate, testECDSAPrivateKey)
 		})
 		b.Run("TLSv12", func(b *testing.B) {
-			benchmarkHandshakeServer(b, VersionTLS12, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+			benchmarkHandshakeServer(b, VersionTLS12, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
 				CurveP521, testECDSACertificate, testECDSAPrivateKey)
 		})
 	})
@@ -1590,9 +1590,7 @@ var getConfigForClientTests = []struct {
 		},
 		func(clientHello *ClientHelloInfo) (*Config, error) {
 			config := testConfig.Clone()
-			for i := range config.SessionTicketKey {
-				config.SessionTicketKey[i] = 0
-			}
+			clear(config.SessionTicketKey[:])
 			config.sessionTicketKeys = nil
 			return config, nil
 		},
@@ -1792,28 +1790,28 @@ func TestAESCipherReordering(t *testing.T) {
 		{
 			name: "server has hardware AES, client doesn't (pick ChaCha)",
 			clientCiphers: []uint16{
-				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 				TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 				TLS_RSA_WITH_AES_128_CBC_SHA,
 			},
 			serverHasAESGCM: true,
-			expectedCipher:  TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			expectedCipher:  TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 		},
 		{
 			name: "client prefers AES-GCM, server doesn't have hardware AES (pick ChaCha)",
 			clientCiphers: []uint16{
 				TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 				TLS_RSA_WITH_AES_128_CBC_SHA,
 			},
 			serverHasAESGCM: false,
-			expectedCipher:  TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			expectedCipher:  TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 		},
 		{
 			name: "client prefers AES-GCM, server has hardware AES (pick AES-GCM)",
 			clientCiphers: []uint16{
 				TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 				TLS_RSA_WITH_AES_128_CBC_SHA,
 			},
 			serverHasAESGCM: true,
@@ -1824,7 +1822,7 @@ func TestAESCipherReordering(t *testing.T) {
 			clientCiphers: []uint16{
 				0x0A0A, // GREASE value
 				TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 				TLS_RSA_WITH_AES_128_CBC_SHA,
 			},
 			serverHasAESGCM: true,
@@ -1845,27 +1843,27 @@ func TestAESCipherReordering(t *testing.T) {
 			clientCiphers: []uint16{
 				TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 				TLS_RSA_WITH_AES_128_CBC_SHA,
-				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 			},
 			serverHasAESGCM: false,
-			expectedCipher:  TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			expectedCipher:  TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 		},
 		{
 			name: "client prefers AES-GCM over ChaCha and sends GREASE, server doesn't have hardware AES (pick ChaCha)",
 			clientCiphers: []uint16{
 				0x0A0A, // GREASE value
 				TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 				TLS_RSA_WITH_AES_128_CBC_SHA,
 			},
 			serverHasAESGCM: false,
-			expectedCipher:  TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			expectedCipher:  TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 		},
 		{
 			name: "client supports multiple AES-GCM, server doesn't have hardware AES and doesn't support ChaCha (AES-GCM)",
 			clientCiphers: []uint16{
 				TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 				TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 			},
 			serverHasAESGCM: false,
@@ -1879,14 +1877,14 @@ func TestAESCipherReordering(t *testing.T) {
 			name: "client prefers AES-GCM, server has hardware but doesn't support AES (pick ChaCha)",
 			clientCiphers: []uint16{
 				TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 				TLS_RSA_WITH_AES_128_CBC_SHA,
 			},
 			serverHasAESGCM: true,
 			serverCiphers: []uint16{
-				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 			},
-			expectedCipher: TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			expectedCipher: TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 		},
 	}
 

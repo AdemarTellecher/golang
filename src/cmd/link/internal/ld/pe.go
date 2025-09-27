@@ -487,9 +487,6 @@ func (f *peFile) addDWARFSection(name string, size int) *peSection {
 
 // addDWARF adds DWARF information to the COFF file f.
 func (f *peFile) addDWARF() {
-	if *FlagS { // disable symbol table
-		return
-	}
 	if *FlagW { // disable dwarf
 		return
 	}
@@ -913,8 +910,6 @@ func (f *peFile) writeFileHeader(ctxt *Link) {
 		fh.Machine = pe.IMAGE_FILE_MACHINE_AMD64
 	case sys.I386:
 		fh.Machine = pe.IMAGE_FILE_MACHINE_I386
-	case sys.ARM:
-		fh.Machine = pe.IMAGE_FILE_MACHINE_ARMNT
 	case sys.ARM64:
 		fh.Machine = pe.IMAGE_FILE_MACHINE_ARM64
 	}

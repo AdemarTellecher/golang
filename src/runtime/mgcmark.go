@@ -50,7 +50,7 @@ const (
 	//
 	// Must be a multiple of the pageInUse bitmap element size and
 	// must also evenly divide pagesPerArena.
-	pagesPerSpanRoot = 512
+	pagesPerSpanRoot = min(512, pagesPerArena)
 )
 
 // gcPrepareMarkRoots queues root scanning jobs (stacks, globals, and
@@ -415,13 +415,13 @@ func gcScanFinalizer(spf *specialfinalizer, s *mspan, gcw *gcWork) {
 	// Don't mark finalized object, but scan it so we retain everything it points to.
 
 	// A finalizer can be set for an inner byte of an object, find object beginning.
-	p := s.base() + uintptr(spf.special.offset)/s.elemsize*s.elemsize
+	p := s.base() + spf.special.offset/s.elemsize*s.elemsize
 
 	// Mark everything that can be reached from
 	// the object (but *not* the object itself or
 	// we'll never collect it).
 	if !s.spanclass.noscan() {
-		scanobject(p, gcw)
+		scanObject(p, gcw)
 	}
 
 	// The special itself is also a root.
@@ -666,6 +666,7 @@ func gcAssistAlloc1(gp *g, scanWork int64) {
 		gp.gcAssistBytes = 0
 		return
 	}
+
 	// Track time spent in this assist. Since we're on the
 	// system stack, this is non-preemptible, so we can
 	// just measure start and end time.
@@ -675,11 +676,7 @@ func gcAssistAlloc1(gp *g, scanWork int64) {
 	startTime := nanotime()
 	trackLimiterEvent := gp.m.p.ptr().limiterEvent.start(limiterEventMarkAssist, startTime)
 
-	decnwait := atomic.Xadd(&work.nwait, -1)
-	if decnwait == work.nproc {
-		println("runtime: work.nwait =", decnwait, "work.nproc=", work.nproc)
-		throw("nwait > work.nprocs")
-	}
+	gcBeginWork()
 
 	// gcDrainN requires the caller to be preemptible.
 	casGToWaitingForSuspendG(gp, _Grunning, waitReasonGCAssistMarking)
@@ -702,14 +699,7 @@ func gcAssistAlloc1(gp *g, scanWork int64) {
 
 	// If this is the last worker and we ran out of work,
 	// signal a completion point.
-	incnwait := atomic.Xadd(&work.nwait, +1)
-	if incnwait > work.nproc {
-		println("runtime: work.nwait=", incnwait,
-			"work.nproc=", work.nproc)
-		throw("work.nwait > work.nproc")
-	}
-
-	if incnwait == work.nproc && !gcMarkWorkAvailable(nil) {
+	if gcEndWork() {
 		// This has reached a background completion point. Set
 		// gp.param to a non-nil value to indicate this. It
 		// doesn't matter what we set it to (it just has to be
@@ -1242,20 +1232,24 @@ func gcDrain(gcw *gcWork, flags gcDrainFlags) {
 		var b uintptr
 		var s objptr
 		if b = gcw.tryGetObjFast(); b == 0 {
-			if s = gcw.tryGetSpan(false); s == 0 {
+			if s = gcw.tryGetSpanFast(); s == 0 {
 				if b = gcw.tryGetObj(); b == 0 {
-					// Flush the write barrier
-					// buffer; this may create
-					// more work.
-					wbBufFlush()
-					if b = gcw.tryGetObj(); b == 0 {
-						s = gcw.tryGetSpan(true)
+					if s = gcw.tryGetSpan(); s == 0 {
+						// Flush the write barrier
+						// buffer; this may create
+						// more work.
+						wbBufFlush()
+						if b = gcw.tryGetObj(); b == 0 {
+							if s = gcw.tryGetSpan(); s == 0 {
+								s = gcw.tryStealSpan()
+							}
+						}
 					}
 				}
 			}
 		}
 		if b != 0 {
-			scanobject(b, gcw)
+			scanObject(b, gcw)
 		} else if s != 0 {
 			scanSpan(s, gcw)
 		} else {
@@ -1338,28 +1332,32 @@ func gcDrainN(gcw *gcWork, scanWork int64) int64 {
 		var b uintptr
 		var s objptr
 		if b = gcw.tryGetObjFast(); b == 0 {
-			if s = gcw.tryGetSpan(false); s == 0 {
+			if s = gcw.tryGetSpanFast(); s == 0 {
 				if b = gcw.tryGetObj(); b == 0 {
-					// Flush the write barrier
-					// buffer; this may create
-					// more work.
-					wbBufFlush()
-					if b = gcw.tryGetObj(); b == 0 {
-						// Try to do a root job.
-						if work.markrootNext < work.markrootJobs {
-							job := atomic.Xadd(&work.markrootNext, +1) - 1
-							if job < work.markrootJobs {
-								workFlushed += markroot(gcw, job, false)
-								continue
+					if s = gcw.tryGetSpan(); s == 0 {
+						// Flush the write barrier
+						// buffer; this may create
+						// more work.
+						wbBufFlush()
+						if b = gcw.tryGetObj(); b == 0 {
+							if s = gcw.tryGetSpan(); s == 0 {
+								// Try to do a root job.
+								if work.markrootNext < work.markrootJobs {
+									job := atomic.Xadd(&work.markrootNext, +1) - 1
+									if job < work.markrootJobs {
+										workFlushed += markroot(gcw, job, false)
+										continue
+									}
+								}
+								s = gcw.tryStealSpan()
 							}
 						}
-						s = gcw.tryGetSpan(true)
 					}
 				}
 			}
 		}
 		if b != 0 {
-			scanobject(b, gcw)
+			scanObject(b, gcw)
 		} else if s != 0 {
 			scanSpan(s, gcw)
 		} else {
@@ -1390,7 +1388,7 @@ func gcDrainN(gcw *gcWork, scanWork int64) int64 {
 	return workFlushed + gcw.heapScanWork
 }
 
-// scanblock scans b as scanobject would, but using an explicit
+// scanblock scans b as scanObject would, but using an explicit
 // pointer bitmap instead of the heap bitmap.
 //
 // This is used to scan non-heap roots, so it does not update
@@ -1415,7 +1413,7 @@ func scanblock(b0, n0 uintptr, ptrmask *uint8, gcw *gcWork, stk *stackScanState)
 		}
 		for j := 0; j < 8 && i < n; j++ {
 			if bits&1 != 0 {
-				// Same work as in scanobject; see comments there.
+				// Same work as in scanObject; see comments there.
 				p := *(*uintptr)(unsafe.Pointer(b + i))
 				if p != 0 {
 					if stk != nil && p >= stk.stack.lo && p < stk.stack.hi {
@@ -1432,107 +1430,6 @@ func scanblock(b0, n0 uintptr, ptrmask *uint8, gcw *gcWork, stk *stackScanState)
 			bits >>= 1
 			i += goarch.PtrSize
 		}
-	}
-}
-
-// scanobject scans the object starting at b, adding pointers to gcw.
-// b must point to the beginning of a heap object or an oblet.
-// scanobject consults the GC bitmap for the pointer mask and the
-// spans for the size of the object.
-//
-//go:nowritebarrier
-func scanobject(b uintptr, gcw *gcWork) {
-	// Prefetch object before we scan it.
-	//
-	// This will overlap fetching the beginning of the object with initial
-	// setup before we start scanning the object.
-	sys.Prefetch(b)
-
-	// Find the bits for b and the size of the object at b.
-	//
-	// b is either the beginning of an object, in which case this
-	// is the size of the object to scan, or it points to an
-	// oblet, in which case we compute the size to scan below.
-	s := spanOfUnchecked(b)
-	n := s.elemsize
-	if n == 0 {
-		throw("scanobject n == 0")
-	}
-	if s.spanclass.noscan() {
-		// Correctness-wise this is ok, but it's inefficient
-		// if noscan objects reach here.
-		throw("scanobject of a noscan object")
-	}
-
-	var tp typePointers
-	if n > maxObletBytes {
-		// Large object. Break into oblets for better
-		// parallelism and lower latency.
-		if b == s.base() {
-			// Enqueue the other oblets to scan later.
-			// Some oblets may be in b's scalar tail, but
-			// these will be marked as "no more pointers",
-			// so we'll drop out immediately when we go to
-			// scan those.
-			for oblet := b + maxObletBytes; oblet < s.base()+s.elemsize; oblet += maxObletBytes {
-				if !gcw.putObjFast(oblet) {
-					gcw.putObj(oblet)
-				}
-			}
-		}
-
-		// Compute the size of the oblet. Since this object
-		// must be a large object, s.base() is the beginning
-		// of the object.
-		n = s.base() + s.elemsize - b
-		n = min(n, maxObletBytes)
-		tp = s.typePointersOfUnchecked(s.base())
-		tp = tp.fastForward(b-tp.addr, b+n)
-	} else {
-		tp = s.typePointersOfUnchecked(b)
-	}
-
-	var scanSize uintptr
-	for {
-		var addr uintptr
-		if tp, addr = tp.nextFast(); addr == 0 {
-			if tp, addr = tp.next(b + n); addr == 0 {
-				break
-			}
-		}
-
-		// Keep track of farthest pointer we found, so we can
-		// update heapScanWork. TODO: is there a better metric,
-		// now that we can skip scalar portions pretty efficiently?
-		scanSize = addr - b + goarch.PtrSize
-
-		// Work here is duplicated in scanblock and above.
-		// If you make changes here, make changes there too.
-		obj := *(*uintptr)(unsafe.Pointer(addr))
-
-		// At this point we have extracted the next potential pointer.
-		// Quickly filter out nil and pointers back to the current object.
-		if obj != 0 && obj-b >= n {
-			// Test if obj points into the Go heap and, if so,
-			// mark the object.
-			//
-			// Note that it's possible for findObject to
-			// fail if obj points to a just-allocated heap
-			// object because of a race with growing the
-			// heap. In this case, we know the object was
-			// just allocated and hence will be marked by
-			// allocation itself.
-			if !tryDeferToSpanScan(obj, gcw) {
-				if obj, span, objIndex := findObject(obj, b, addr-b); obj != 0 {
-					greyobject(obj, b, addr-b, span, gcw, objIndex)
-				}
-			}
-		}
-	}
-	gcw.bytesMarked += uint64(n)
-	gcw.heapScanWork += int64(scanSize)
-	if debug.gctrace > 1 {
-		gcw.stats[s.spanclass.sizeclass()].sparseObjsScanned++
 	}
 }
 

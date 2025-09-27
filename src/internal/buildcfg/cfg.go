@@ -85,7 +85,7 @@ func gofips140() string {
 }
 
 // isFIPSVersion reports whether v is a valid FIPS version,
-// of the form vX.Y.Z.
+// of the form vX.Y.Z or vX.Y.Z-hash.
 func isFIPSVersion(v string) bool {
 	if !strings.HasPrefix(v, "v") {
 		return false
@@ -99,7 +99,8 @@ func isFIPSVersion(v string) bool {
 		return false
 	}
 	v, ok = skipNum(v[len("."):])
-	return ok && v == ""
+	hasHash := strings.HasPrefix(v, "-") && len(v) == len("-")+8
+	return ok && (v == "" || hasHash)
 }
 
 // skipNum skips the leading text matching [0-9]+
@@ -336,7 +337,7 @@ func (f gowasmFeatures) String() string {
 }
 
 func gowasm() (f gowasmFeatures) {
-	for _, opt := range strings.Split(envOr("GOWASM", ""), ",") {
+	for opt := range strings.SplitSeq(envOr("GOWASM", ""), ",") {
 		switch opt {
 		case "satconv":
 			f.SatConv = true
@@ -392,6 +393,8 @@ func GOGOARCH() (name, value string) {
 		return "GOMIPS64", GOMIPS64
 	case "ppc64", "ppc64le":
 		return "GOPPC64", fmt.Sprintf("power%d", GOPPC64)
+	case "riscv64":
+		return "GORISCV64", fmt.Sprintf("rva%du64", GORISCV64)
 	case "wasm":
 		return "GOWASM", GOWASM.String()
 	}

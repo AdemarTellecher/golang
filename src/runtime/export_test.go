@@ -58,9 +58,6 @@ const CrashStackImplemented = crashStackImplemented
 const TracebackInnerFrames = tracebackInnerFrames
 const TracebackOuterFrames = tracebackOuterFrames
 
-var MapKeys = keys
-var MapValues = values
-
 var LockPartialOrder = lockPartialOrder
 
 type TimeTimer = timeTimer
@@ -417,7 +414,8 @@ func ReadMemStatsSlow() (base, slow MemStats) {
 			slow.HeapReleased += uint64(pg) * pageSize
 		}
 		for _, p := range allp {
-			pg := sys.OnesCount64(p.pcache.scav)
+			// Only count scav bits for pages in the cache
+			pg := sys.OnesCount64(p.pcache.cache & p.pcache.scav)
 			slow.HeapReleased += uint64(pg) * pageSize
 		}
 
@@ -554,6 +552,8 @@ func GetNextArenaHint() uintptr {
 type G = g
 
 type Sudog = sudog
+
+type XRegPerG = xRegPerG
 
 func Getg() *G {
 	return getg()
@@ -1120,12 +1120,14 @@ func CheckScavengedBitsCleared(mismatches []BitsMismatch) (n int, ok bool) {
 
 		// Lock so that we can safely access the bitmap.
 		lock(&mheap_.lock)
+
 	chunkLoop:
 		for i := mheap_.pages.start; i < mheap_.pages.end; i++ {
 			chunk := mheap_.pages.tryChunkOf(i)
 			if chunk == nil {
 				continue
 			}
+			cb := chunkBase(i)
 			for j := 0; j < pallocChunkPages/64; j++ {
 				// Run over each 64-bit bitmap section and ensure
 				// scavenged is being cleared properly on allocation.
@@ -1140,7 +1142,7 @@ func CheckScavengedBitsCleared(mismatches []BitsMismatch) (n int, ok bool) {
 						break chunkLoop
 					}
 					mismatches[n] = BitsMismatch{
-						Base: chunkBase(i) + uintptr(j)*64*pageSize,
+						Base: cb + uintptr(j)*64*pageSize,
 						Got:  got,
 						Want: want,
 					}
@@ -1152,6 +1154,37 @@ func CheckScavengedBitsCleared(mismatches []BitsMismatch) (n int, ok bool) {
 
 		getg().m.mallocing--
 	})
+
+	if randomizeHeapBase && len(mismatches) > 0 {
+		// When goexperiment.RandomizedHeapBase64 is set we use a series of
+		// padding pages to generate randomized heap base address which have
+		// both the alloc and scav bits set. Because of this we expect exactly
+		// one arena will have mismatches, so check for that explicitly and
+		// remove the mismatches if that property holds. If we see more than one
+		// arena with this property, that is an indication something has
+		// actually gone wrong, so return the mismatches.
+		//
+		// We do this, instead of ignoring the mismatches in the chunkLoop, because
+		// it's not easy to determine which arena we added the padding pages to
+		// programmatically, without explicitly recording the base address somewhere
+		// in a global variable (which we'd rather not do as the address of that variable
+		// is likely to be somewhat predictable, potentially defeating the purpose
+		// of our randomization).
+		affectedArenas := map[arenaIdx]bool{}
+		for _, mismatch := range mismatches {
+			if mismatch.Base > 0 {
+				affectedArenas[arenaIndex(mismatch.Base)] = true
+			}
+		}
+		if len(affectedArenas) == 1 {
+			ok = true
+			// zero the mismatches
+			for i := range n {
+				mismatches[i] = BitsMismatch{}
+			}
+		}
+	}
+
 	return
 }
 
@@ -1254,30 +1287,6 @@ func MSpanCountAlloc(ms *MSpan, bits []byte) int {
 	result := s.countAlloc()
 	s.gcmarkBits = nil
 	return result
-}
-
-type MSpanQueue mSpanQueue
-
-func (q *MSpanQueue) Size() int {
-	return (*mSpanQueue)(q).n
-}
-
-func (q *MSpanQueue) Push(s *MSpan) {
-	(*mSpanQueue)(q).push((*mspan)(s))
-}
-
-func (q *MSpanQueue) Pop() *MSpan {
-	s := (*mSpanQueue)(q).pop()
-	return (*MSpan)(s)
-}
-
-func (q *MSpanQueue) TakeAll(p *MSpanQueue) {
-	(*mSpanQueue)(q).takeAll((*mSpanQueue)(p))
-}
-
-func (q *MSpanQueue) PopN(n int) MSpanQueue {
-	p := (*mSpanQueue)(q).popN(n)
-	return (MSpanQueue)(p)
 }
 
 const (
@@ -1759,7 +1768,7 @@ func NewUserArena() *UserArena {
 func (a *UserArena) New(out *any) {
 	i := efaceOf(out)
 	typ := i._type
-	if typ.Kind_&abi.KindMask != abi.Pointer {
+	if typ.Kind() != abi.Pointer {
 		panic("new result of non-ptr type")
 	}
 	typ = (*ptrtype)(unsafe.Pointer(typ)).Elem
@@ -1917,3 +1926,13 @@ const (
 	BubbleAssocCurrentBubble = bubbleAssocCurrentBubble
 	BubbleAssocOtherBubble   = bubbleAssocOtherBubble
 )
+
+type TraceStackTable traceStackTable
+
+func (t *TraceStackTable) Reset() {
+	t.tab.reset()
+}
+
+func TraceStack(gp *G, tab *TraceStackTable) {
+	traceStack(0, gp, (*traceStackTable)(tab))
+}

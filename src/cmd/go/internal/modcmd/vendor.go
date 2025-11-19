@@ -66,11 +66,12 @@ func init() {
 }
 
 func runVendor(ctx context.Context, cmd *base.Command, args []string) {
-	modload.InitWorkfile(modload.LoaderState)
-	if modload.WorkFilePath(modload.LoaderState) != "" {
+	moduleLoaderState := modload.NewState()
+	moduleLoaderState.InitWorkfile()
+	if modload.WorkFilePath(moduleLoaderState) != "" {
 		base.Fatalf("go: 'go mod vendor' cannot be run in workspace mode. Run 'go work vendor' to vendor the workspace or set 'GOWORK=off' to exit workspace mode.")
 	}
-	RunVendor(modload.LoaderState, ctx, vendorE, vendorO, args)
+	RunVendor(moduleLoaderState, ctx, vendorE, vendorO, args)
 }
 
 func RunVendor(loaderstate *modload.State, ctx context.Context, vendorE bool, vendorO string, args []string) {
@@ -117,7 +118,7 @@ func RunVendor(loaderstate *modload.State, ctx context.Context, vendorE bool, ve
 	includeGoVersions := false
 	isExplicit := map[module.Version]bool{}
 	gv := loaderstate.MainModules.GoVersion(loaderstate)
-	if gover.Compare(gv, "1.14") >= 0 && (modload.FindGoWork(loaderstate, base.Cwd()) != "" || modload.ModFile(loaderstate).Go != nil) {
+	if gover.Compare(gv, "1.14") >= 0 && (loaderstate.FindGoWork(base.Cwd()) != "" || modload.ModFile(loaderstate).Go != nil) {
 		// If the Go version is at least 1.14, annotate all explicit 'require' and
 		// 'replace' targets found in the go.mod file so that we can perform a
 		// stronger consistency check when -mod=vendor is set.

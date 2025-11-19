@@ -386,6 +386,7 @@ const (
 	Op386ADDLcarry
 	Op386ADDLconstcarry
 	Op386ADCL
+	Op386ADCLcarry
 	Op386ADCLconst
 	Op386SUBL
 	Op386SUBLconst
@@ -1182,6 +1183,7 @@ const (
 	OpARMADDSconst
 	OpARMADC
 	OpARMADCconst
+	OpARMADCS
 	OpARMSUBS
 	OpARMSUBSconst
 	OpARMRSBSconst
@@ -2491,6 +2493,8 @@ const (
 	OpRISCV64REMUW
 	OpRISCV64MOVaddr
 	OpRISCV64MOVDconst
+	OpRISCV64FMOVDconst
+	OpRISCV64FMOVFconst
 	OpRISCV64MOVBload
 	OpRISCV64MOVHload
 	OpRISCV64MOVWload
@@ -3008,6 +3012,7 @@ const (
 	OpWasmI64Rotl
 	OpWasmI64Popcnt
 
+	OpLast
 	OpAdd8
 	OpAdd16
 	OpAdd32
@@ -3334,6 +3339,7 @@ const (
 	OpInt64Lo
 	OpAdd32carry
 	OpAdd32withcarry
+	OpAdd32carrywithcarry
 	OpSub32carry
 	OpSub32withcarry
 	OpAdd64carry
@@ -3962,6 +3968,24 @@ var opcodeTable = [...]opInfo{
 				{1, 239}, // AX CX DX BX BP SI DI
 			},
 			outputs: []outputInfo{
+				{0, 239}, // AX CX DX BX BP SI DI
+			},
+		},
+	},
+	{
+		name:         "ADCLcarry",
+		argLen:       3,
+		commutative:  true,
+		resultInArg0: true,
+		clobberFlags: true,
+		asm:          x86.AADCL,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 239}, // AX CX DX BX BP SI DI
+				{1, 239}, // AX CX DX BX BP SI DI
+			},
+			outputs: []outputInfo{
+				{1, 0},
 				{0, 239}, // AX CX DX BX BP SI DI
 			},
 		},
@@ -15786,6 +15810,22 @@ var opcodeTable = [...]opInfo{
 				{0, 21503}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R12 R14
 			},
 			outputs: []outputInfo{
+				{0, 21503}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R12 R14
+			},
+		},
+	},
+	{
+		name:        "ADCS",
+		argLen:      3,
+		commutative: true,
+		asm:         arm.AADC,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 21503}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R12 R14
+				{1, 21503}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R12 R14
+			},
+			outputs: []outputInfo{
+				{1, 0},
 				{0, 21503}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R12 R14
 			},
 		},
@@ -33463,6 +33503,30 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
+		name:              "FMOVDconst",
+		auxType:           auxFloat64,
+		argLen:            0,
+		rematerializeable: true,
+		asm:               riscv.AMOVD,
+		reg: regInfo{
+			outputs: []outputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+		},
+	},
+	{
+		name:              "FMOVFconst",
+		auxType:           auxFloat32,
+		argLen:            0,
+		rematerializeable: true,
+		asm:               riscv.AMOVF,
+		reg: regInfo{
+			outputs: []outputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+		},
+	},
+	{
 		name:           "MOVBload",
 		auxType:        auxSymOff,
 		argLen:         2,
@@ -40647,6 +40711,11 @@ var opcodeTable = [...]opInfo{
 	},
 
 	{
+		name:    "Last",
+		argLen:  -1,
+		generic: true,
+	},
+	{
 		name:        "Add8",
 		argLen:      2,
 		commutative: true,
@@ -42450,6 +42519,12 @@ var opcodeTable = [...]opInfo{
 	},
 	{
 		name:        "Add32withcarry",
+		argLen:      3,
+		commutative: true,
+		generic:     true,
+	},
+	{
+		name:        "Add32carrywithcarry",
 		argLen:      3,
 		commutative: true,
 		generic:     true,

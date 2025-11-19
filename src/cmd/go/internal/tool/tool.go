@@ -78,9 +78,10 @@ func init() {
 }
 
 func runTool(ctx context.Context, cmd *base.Command, args []string) {
+	moduleLoaderState := modload.NewState()
 	if len(args) == 0 {
 		counter.Inc("go/subcommand:tool")
-		listTools(modload.LoaderState, ctx)
+		listTools(moduleLoaderState, ctx)
 		return
 	}
 	toolName := args[0]
@@ -108,14 +109,14 @@ func runTool(ctx context.Context, cmd *base.Command, args []string) {
 		if tool := loadBuiltinTool(toolName); tool != "" {
 			// Increment a counter for the tool subcommand with the tool name.
 			counter.Inc("go/subcommand:tool-" + toolName)
-			buildAndRunBuiltinTool(modload.LoaderState, ctx, toolName, tool, args[1:])
+			buildAndRunBuiltinTool(moduleLoaderState, ctx, toolName, tool, args[1:])
 			return
 		}
 
 		// Try to build and run mod tool.
-		tool := loadModTool(modload.LoaderState, ctx, toolName)
+		tool := loadModTool(moduleLoaderState, ctx, toolName)
 		if tool != "" {
-			buildAndRunModtool(modload.LoaderState, ctx, toolName, tool, args[1:])
+			buildAndRunModtool(moduleLoaderState, ctx, toolName, tool, args[1:])
 			return
 		}
 
@@ -161,7 +162,7 @@ func listTools(loaderstate *modload.State, ctx context.Context) {
 		fmt.Println(name)
 	}
 
-	modload.InitWorkfile(loaderstate)
+	loaderstate.InitWorkfile()
 	modload.LoadModFile(loaderstate, ctx)
 	modTools := slices.Sorted(maps.Keys(loaderstate.MainModules.Tools()))
 	for _, tool := range modTools {
@@ -252,7 +253,7 @@ func loadBuiltinTool(toolName string) string {
 }
 
 func loadModTool(loaderstate *modload.State, ctx context.Context, name string) string {
-	modload.InitWorkfile(loaderstate)
+	loaderstate.InitWorkfile()
 	modload.LoadModFile(loaderstate, ctx)
 
 	matches := []string{}

@@ -314,7 +314,10 @@ const Ptr = Pointer
 
 // uncommonType is present only for defined types or types with methods
 // (if T is a defined type, the uncommonTypes for T and *T have methods).
-// Using a pointer to this struct reduces the overall size required
+// When present, the uncommonType struct immediately follows the
+// abi.Type struct in memory.
+// The abi.TFlagUncommon indicates the presence of uncommonType.
+// Using an optional struct reduces the overall size required
 // to describe a non-defined type with no methods.
 type uncommonType = abi.UncommonType
 
@@ -2525,8 +2528,7 @@ func StructOf(fields []StructField) Type {
 	}
 
 	switch {
-	case len(fs) == 1 && fs[0].Typ.IsDirectIface():
-		// structs of 1 direct iface type can be direct
+	case typ.Size_ == goarch.PtrSize && typ.PtrBytes == goarch.PtrSize:
 		typ.TFlag |= abi.TFlagDirectIface
 	default:
 		typ.TFlag &^= abi.TFlagDirectIface
@@ -2695,8 +2697,7 @@ func ArrayOf(length int, elem Type) Type {
 	}
 
 	switch {
-	case length == 1 && typ.IsDirectIface():
-		// array of 1 direct iface type can be direct
+	case array.Size_ == goarch.PtrSize && array.PtrBytes == goarch.PtrSize:
 		array.TFlag |= abi.TFlagDirectIface
 	default:
 		array.TFlag &^= abi.TFlagDirectIface

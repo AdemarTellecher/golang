@@ -8,7 +8,7 @@ import (
 	"errors"
 	"internal/abi"
 	"internal/goarch"
-	"internal/itoa"
+	"internal/strconv"
 	"internal/unsafeheader"
 	"math"
 	"runtime"
@@ -1279,6 +1279,17 @@ func (v Value) Field(i int) Value {
 			fl |= flagStickyRO
 		}
 	}
+	if fl&flagIndir == 0 && typ.Size() == 0 {
+		// Special case for picking a field out of a direct struct.
+		// A direct struct must have a pointer field and possibly a
+		// bunch of zero-sized fields. We must return the zero-sized
+		// fields indirectly, as only ptr-shaped things can be direct.
+		// See issue 74935.
+		// We use nil instead of v.ptr as it doesn't matter and
+		// we can avoid pinning a possibly now-unused object.
+		return Value{typ, nil, fl | flagIndir}
+	}
+
 	// Either flagIndir is set and v.ptr points at struct,
 	// or flagIndir is not set and v.ptr is the actual struct data.
 	// In the former case, we want v.ptr + offset.
@@ -3573,7 +3584,7 @@ func cvtStringRunes(v Value, t Type) Value {
 func cvtSliceArrayPtr(v Value, t Type) Value {
 	n := t.Elem().Len()
 	if n > v.Len() {
-		panic("reflect: cannot convert slice with length " + itoa.Itoa(v.Len()) + " to pointer to array with length " + itoa.Itoa(n))
+		panic("reflect: cannot convert slice with length " + strconv.Itoa(v.Len()) + " to pointer to array with length " + strconv.Itoa(n))
 	}
 	h := (*unsafeheader.Slice)(v.ptr)
 	return Value{t.common(), h.Data, v.flag&^(flagIndir|flagAddr|flagKindMask) | flag(Pointer)}
@@ -3583,7 +3594,7 @@ func cvtSliceArrayPtr(v Value, t Type) Value {
 func cvtSliceArray(v Value, t Type) Value {
 	n := t.Len()
 	if n > v.Len() {
-		panic("reflect: cannot convert slice with length " + itoa.Itoa(v.Len()) + " to array with length " + itoa.Itoa(n))
+		panic("reflect: cannot convert slice with length " + strconv.Itoa(v.Len()) + " to array with length " + strconv.Itoa(n))
 	}
 	h := (*unsafeheader.Slice)(v.ptr)
 	typ := t.common()

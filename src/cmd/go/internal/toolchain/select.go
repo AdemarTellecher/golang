@@ -99,7 +99,7 @@ func Select() {
 	log.SetPrefix("go: ")
 	defer log.SetPrefix("")
 
-	if !modload.WillBeEnabled(moduleLoaderState) {
+	if !moduleLoaderState.WillBeEnabled() {
 		return
 	}
 
@@ -285,6 +285,7 @@ func Select() {
 
 	counterSelectExec.Inc()
 	Exec(moduleLoaderState, gotoolchain)
+	panic("unreachable")
 }
 
 var counterSelectExec = counter.New("go/toolchain/select-exec")
@@ -351,12 +352,6 @@ func Exec(s *modload.State, gotoolchain string) {
 	if pathOnly {
 		base.Fatalf("cannot find %q in PATH", gotoolchain)
 	}
-
-	// Set up modules without an explicit go.mod, to download distribution.
-	s.Reset()
-	s.ForceUseModules = true
-	s.RootMode = modload.NoRoot
-	modload.Init(s)
 
 	// Download and unpack toolchain module into module cache.
 	// Note that multiple go commands might be doing this at the same time,
@@ -530,7 +525,7 @@ func raceSafeCopy(old, new string) error {
 // The toolchain line overrides the version line
 func modGoToolchain(loaderstate *modload.State) (file, goVers, toolchain string) {
 	wd := base.UncachedCwd()
-	file = modload.FindGoWork(loaderstate, wd)
+	file = loaderstate.FindGoWork(wd)
 	// $GOWORK can be set to a file that does not yet exist, if we are running 'go work init'.
 	// Do not try to load the file in that case
 	if _, err := os.Stat(file); err != nil {

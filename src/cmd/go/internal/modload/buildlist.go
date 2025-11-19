@@ -165,7 +165,7 @@ func (rs *Requirements) String() string {
 func (rs *Requirements) initVendor(loaderstate *State, vendorList []module.Version) {
 	rs.graphOnce.Do(func() {
 		roots := loaderstate.MainModules.Versions()
-		if inWorkspaceMode(loaderstate) {
+		if loaderstate.inWorkspaceMode() {
 			// Use rs.rootModules to pull in the go and toolchain roots
 			// from the go.work file and preserve the invariant that all
 			// of rs.rootModules are in mg.g.
@@ -208,7 +208,7 @@ func (rs *Requirements) initVendor(loaderstate *State, vendorList []module.Versi
 			// graph, but still distinguishes between direct and indirect
 			// dependencies.
 			vendorMod := module.Version{Path: "vendor/modules.txt", Version: ""}
-			if inWorkspaceMode(loaderstate) {
+			if loaderstate.inWorkspaceMode() {
 				for _, m := range loaderstate.MainModules.Versions() {
 					reqs, _ := rootsFromModFile(loaderstate, m, loaderstate.MainModules.ModFile(m), omitToolchainRoot)
 					mg.g.Require(m, append(reqs, vendorMod))
@@ -333,7 +333,7 @@ func readModGraph(loaderstate *State, ctx context.Context, pruning modPruning, r
 	}
 
 	var graphRoots []module.Version
-	if inWorkspaceMode(loaderstate) {
+	if loaderstate.inWorkspaceMode() {
 		graphRoots = roots
 	} else {
 		graphRoots = loaderstate.MainModules.Versions()
@@ -347,7 +347,7 @@ func readModGraph(loaderstate *State, ctx context.Context, pruning modPruning, r
 	)
 
 	if pruning != workspace {
-		if inWorkspaceMode(loaderstate) {
+		if loaderstate.inWorkspaceMode() {
 			panic("pruning is not workspace in workspace mode")
 		}
 		mg.g.Require(loaderstate.MainModules.mustGetSingleMainModule(loaderstate), roots)
@@ -529,7 +529,7 @@ func (mg *ModuleGraph) findError() error {
 
 func (mg *ModuleGraph) allRootsSelected(loaderstate *State) bool {
 	var roots []module.Version
-	if inWorkspaceMode(loaderstate) {
+	if loaderstate.inWorkspaceMode() {
 		roots = loaderstate.MainModules.Versions()
 	} else {
 		roots, _ = mg.g.RequiredBy(loaderstate.MainModules.mustGetSingleMainModule(loaderstate))
@@ -1319,7 +1319,7 @@ func tidyUnprunedRoots(loaderstate *State, ctx context.Context, mainModule modul
 
 	// Construct a build list with a minimal set of roots.
 	// This may remove or downgrade modules in altMods.
-	reqs := &mvsReqs{roots: keep}
+	reqs := &mvsReqs{loaderstate: loaderstate, roots: keep}
 	min, err := mvs.Req(mainModule, rootPaths, reqs)
 	if err != nil {
 		return nil, err
@@ -1445,7 +1445,7 @@ func updateUnprunedRoots(loaderstate *State, ctx context.Context, direct map[str
 
 	var roots []module.Version
 	for _, mainModule := range loaderstate.MainModules.Versions() {
-		min, err := mvs.Req(mainModule, rootPaths, &mvsReqs{roots: keep})
+		min, err := mvs.Req(mainModule, rootPaths, &mvsReqs{loaderstate: loaderstate, roots: keep})
 		if err != nil {
 			return rs, err
 		}

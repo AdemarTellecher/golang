@@ -6,7 +6,6 @@ package maps
 
 import (
 	"internal/abi"
-	"internal/goarch"
 	"internal/runtime/math"
 	"unsafe"
 )
@@ -597,7 +596,7 @@ func (t *table) tombstones() uint16 {
 	return (t.capacity*maxAvgGroupLoad)/abi.MapGroupSlots - t.used - t.growthLeft
 }
 
-// Clear deletes all entries from the map resulting in an empty map.
+// Clear deletes all entries from the table resulting in an empty table.
 func (t *table) Clear(typ *abi.MapType) {
 	mgl := t.maxGrowthLeft()
 	if t.used == 0 && t.growthLeft == mgl { // no current entries and no tombstones
@@ -1170,7 +1169,7 @@ func (t *table) rehash(typ *abi.MapType, m *Map) {
 
 // Bitmask for the last selection bit at this depth.
 func localDepthMask(localDepth uint8) uintptr {
-	if goarch.PtrSize == 4 {
+	if !Use64BitHash {
 		return uintptr(1) << (32 - localDepth)
 	}
 	return uintptr(1) << (64 - localDepth)

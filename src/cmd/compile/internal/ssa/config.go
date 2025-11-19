@@ -41,8 +41,6 @@ type Config struct {
 	hasGReg        bool      // has hardware g register
 	ctxt           *obj.Link // Generic arch information
 	optimize       bool      // Do optimization
-	useAvg         bool      // Use optimizations that need Avg* operations
-	useHmul        bool      // Use optimizations that need Hmul* operations
 	SoftFloat      bool      //
 	Race           bool      // race detector enabled
 	BigEndian      bool      //
@@ -50,6 +48,7 @@ type Config struct {
 	haveBswap64    bool      // architecture implements Bswap64
 	haveBswap32    bool      // architecture implements Bswap32
 	haveBswap16    bool      // architecture implements Bswap16
+	haveCondSelect bool      // architecture implements CondSelect
 
 	// mulRecipes[x] = function to build v * x from v.
 	mulRecipes map[int64]mulRecipe
@@ -127,17 +126,17 @@ func (t *Types) SetTypPtrs() {
 
 type Logger interface {
 	// Logf logs a message from the compiler.
-	Logf(string, ...interface{})
+	Logf(string, ...any)
 
 	// Log reports whether logging is not a no-op
 	// some logging calls account for more than a few heap allocations.
 	Log() bool
 
 	// Fatalf reports a compiler error and exits.
-	Fatalf(pos src.XPos, msg string, args ...interface{})
+	Fatalf(pos src.XPos, msg string, args ...any)
 
 	// Warnl writes compiler messages in the form expected by "errorcheck" tests
-	Warnl(pos src.XPos, fmt_ string, args ...interface{})
+	Warnl(pos src.XPos, fmt_ string, args ...any)
 
 	// Forwards the Debug flags from gc
 	Debug_checknil() bool
@@ -167,8 +166,6 @@ type Frontend interface {
 // NewConfig returns a new configuration object for the given architecture.
 func NewConfig(arch string, types Types, ctxt *obj.Link, optimize, softfloat bool) *Config {
 	c := &Config{arch: arch, Types: types}
-	c.useAvg = true
-	c.useHmul = true
 	switch arch {
 	case "amd64":
 		c.PtrSize = 8
@@ -191,6 +188,7 @@ func NewConfig(arch string, types Types, ctxt *obj.Link, optimize, softfloat boo
 		c.haveBswap64 = true
 		c.haveBswap32 = true
 		c.haveBswap16 = true
+		c.haveCondSelect = true
 	case "386":
 		c.PtrSize = 4
 		c.RegSize = 4
@@ -236,6 +234,7 @@ func NewConfig(arch string, types Types, ctxt *obj.Link, optimize, softfloat boo
 		c.haveBswap64 = true
 		c.haveBswap32 = true
 		c.haveBswap16 = true
+		c.haveCondSelect = true
 	case "ppc64":
 		c.BigEndian = true
 		fallthrough
@@ -263,6 +262,7 @@ func NewConfig(arch string, types Types, ctxt *obj.Link, optimize, softfloat boo
 		c.haveBswap64 = true
 		c.haveBswap32 = true
 		c.haveBswap16 = true
+		c.haveCondSelect = true
 	case "mips64":
 		c.BigEndian = true
 		fallthrough
@@ -296,6 +296,7 @@ func NewConfig(arch string, types Types, ctxt *obj.Link, optimize, softfloat boo
 		c.LinkReg = linkRegLOONG64
 		c.hasGReg = true
 		c.unalignedOK = true
+		c.haveCondSelect = true
 	case "s390x":
 		c.PtrSize = 8
 		c.RegSize = 8
@@ -354,8 +355,8 @@ func NewConfig(arch string, types Types, ctxt *obj.Link, optimize, softfloat boo
 		c.FPReg = framepointerRegWasm
 		c.LinkReg = linkRegWasm
 		c.hasGReg = true
-		c.useAvg = false
-		c.useHmul = false
+		c.unalignedOK = true
+		c.haveCondSelect = true
 	default:
 		ctxt.Diag("arch %s not implemented", arch)
 	}

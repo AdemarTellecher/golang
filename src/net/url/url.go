@@ -18,6 +18,7 @@ package url
 import (
 	"errors"
 	"fmt"
+	"internal/godebug"
 	"net/netip"
 	"path"
 	"slices"
@@ -25,6 +26,8 @@ import (
 	"strings"
 	_ "unsafe" // for linkname
 )
+
+var urlstrictcolons = godebug.New("urlstrictcolons")
 
 // Error reports an error and the operation and URL that caused it.
 type Error struct {
@@ -56,17 +59,9 @@ func ishex(c byte) bool {
 	return table[c]&hexChar != 0
 }
 
+// Precondition: ishex(c) is true.
 func unhex(c byte) byte {
-	switch {
-	case '0' <= c && c <= '9':
-		return c - '0'
-	case 'a' <= c && c <= 'f':
-		return c - 'a' + 10
-	case 'A' <= c && c <= 'F':
-		return c - 'A' + 10
-	default:
-		panic("invalid hex character")
-	}
+	return 9*(c>>6) + (c & 15)
 }
 
 type EscapeError string
@@ -161,19 +156,24 @@ func unescape(s string, mode encoding) (string, error) {
 		return s, nil
 	}
 
+	var unescapedPlusSign byte
+	switch mode {
+	case encodeQueryComponent:
+		unescapedPlusSign = ' '
+	default:
+		unescapedPlusSign = '+'
+	}
 	var t strings.Builder
 	t.Grow(len(s) - 2*n)
 	for i := 0; i < len(s); i++ {
 		switch s[i] {
 		case '%':
+			// In the loop above, we established that unhex's precondition is
+			// fulfilled for both s[i+1] and s[i+2].
 			t.WriteByte(unhex(s[i+1])<<4 | unhex(s[i+2]))
 			i += 2
 		case '+':
-			if mode == encodeQueryComponent {
-				t.WriteByte(' ')
-			} else {
-				t.WriteByte('+')
-			}
+			t.WriteByte(unescapedPlusSign)
 		default:
 			t.WriteByte(s[i])
 		}
@@ -195,8 +195,7 @@ func PathEscape(s string) string {
 
 func escape(s string, mode encoding) string {
 	spaceCount, hexCount := 0, 0
-	for i := 0; i < len(s); i++ {
-		c := s[i]
+	for _, c := range []byte(s) {
 		if shouldEscape(c, mode) {
 			if c == ' ' && mode == encodeQueryComponent {
 				spaceCount++
@@ -231,8 +230,8 @@ func escape(s string, mode encoding) string {
 	}
 
 	j := 0
-	for i := 0; i < len(s); i++ {
-		switch c := s[i]; {
+	for _, c := range []byte(s) {
+		switch {
 		case c == ' ' && mode == encodeQueryComponent:
 			t[j] = '+'
 			j++
@@ -242,7 +241,7 @@ func escape(s string, mode encoding) string {
 			t[j+2] = upperhex[c&15]
 			j += 3
 		default:
-			t[j] = s[i]
+			t[j] = c
 			j++
 		}
 	}
@@ -603,7 +602,11 @@ func parseHost(host string) (string, error) {
 			return "", errors.New("invalid IP-literal")
 		}
 		return "[" + unescapedHostname + "]" + unescapedColonPort, nil
-	} else if i := strings.LastIndex(host, ":"); i != -1 {
+	} else if i := strings.Index(host, ":"); i != -1 {
+		if j := strings.LastIndex(host, ":"); urlstrictcolons.Value() == "0" && j != i {
+			urlstrictcolons.IncNonDefault()
+			i = j
+		}
 		colonPort := host[i:]
 		if !validOptionalPort(colonPort) {
 			return "", fmt.Errorf("invalid port %q after host", colonPort)

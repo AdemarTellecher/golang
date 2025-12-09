@@ -8,6 +8,7 @@ import (
 	"internal/abi"
 	"internal/cpu"
 	"internal/goarch"
+	"internal/goexperiment"
 	"internal/goos"
 	"internal/runtime/atomic"
 	"internal/runtime/exithook"
@@ -763,9 +764,10 @@ func cpuinit(env string) {
 	// to guard execution of instructions that can not be assumed to be always supported.
 	switch GOARCH {
 	case "386", "amd64":
+		x86HasAVX = cpu.X86.HasAVX
+		x86HasFMA = cpu.X86.HasFMA
 		x86HasPOPCNT = cpu.X86.HasPOPCNT
 		x86HasSSE41 = cpu.X86.HasSSE41
-		x86HasFMA = cpu.X86.HasFMA
 
 	case "arm":
 		armHasVFPv4 = cpu.ARM.HasVFPv4
@@ -2431,7 +2433,7 @@ func needm(signal bool) {
 	sp := sys.GetCallerSP()
 	callbackUpdateSystemStack(mp, sp, signal)
 
-	// Should mark we are already in Go now.
+	// We must mark that we are already in Go now.
 	// Otherwise, we may call needm again when we get a signal, before cgocallbackg1,
 	// which means the extram list may be empty, that will cause a deadlock.
 	mp.isExtraInC = false
@@ -2453,7 +2455,8 @@ func needm(signal bool) {
 	// mp.curg is now a real goroutine.
 	casgstatus(mp.curg, _Gdeadextra, _Gsyscall)
 	sched.ngsys.Add(-1)
-	sched.nGsyscallNoP.Add(1)
+	// N.B. We do not update nGsyscallNoP, because isExtraInC threads are not
+	// counted as real goroutines while they're in C.
 
 	if !signal {
 		if trace.ok() {
@@ -2588,7 +2591,7 @@ func dropm() {
 	casgstatus(mp.curg, _Gsyscall, _Gdeadextra)
 	mp.curg.preemptStop = false
 	sched.ngsys.Add(1)
-	sched.nGsyscallNoP.Add(-1)
+	decGSyscallNoP(mp)
 
 	if !mp.isExtraInSig {
 		if trace.ok() {
@@ -4135,10 +4138,22 @@ top:
 
 	gp, inheritTime, tryWakeP := findRunnable() // blocks until work is available
 
+	// May be on a new P.
+	pp = mp.p.ptr()
+
 	// findRunnable may have collected an allp snapshot. The snapshot is
 	// only required within findRunnable. Clear it to all GC to collect the
 	// slice.
 	mp.clearAllpSnapshot()
+
+	// If the P was assigned a next GC mark worker but findRunnable
+	// selected anything else, release the worker so another P may run it.
+	//
+	// N.B. If this occurs because a higher-priority goroutine was selected
+	// (trace reader), then tryWakeP is set, which will wake another P to
+	// run the worker. If this occurs because the GC is no longer active,
+	// there is no need to wakep.
+	gcController.releaseNextGCMarkWorker(pp)
 
 	if debug.dontfreezetheworld > 0 && freezing.Load() {
 		// See comment in freezetheworld. We don't want to perturb
@@ -4441,6 +4456,13 @@ func goexit1() {
 
 // goexit continuation on g0.
 func goexit0(gp *g) {
+	if goexperiment.RuntimeSecret && gp.secret > 0 {
+		// Erase the whole stack. This path only occurs when
+		// runtime.Goexit is called from within a runtime/secret.Do call.
+		memclrNoHeapPointers(unsafe.Pointer(gp.stack.lo), gp.stack.hi-gp.stack.lo)
+		// Since this is running on g0, our registers are already zeroed from going through
+		// mcall in secret mode.
+	}
 	gdestroy(gp)
 	schedule()
 }
@@ -4468,6 +4490,8 @@ func gdestroy(gp *g) {
 	gp.labels = nil
 	gp.timer = nil
 	gp.bubble = nil
+	gp.fipsOnlyBypass = false
+	gp.secret = 0
 
 	if gcBlackenEnabled != 0 && gp.gcAssistBytes > 0 {
 		// Flush assist credit to the global pool. This gives
@@ -4709,7 +4733,7 @@ func entersyscallHandleGCWait(trace traceLocker) {
 		if trace.ok() {
 			trace.ProcStop(pp)
 		}
-		sched.nGsyscallNoP.Add(1)
+		addGSyscallNoP(gp.m) // We gave up our P voluntarily.
 		pp.gcStopTime = nanotime()
 		pp.syscalltick++
 		if sched.stopwait--; sched.stopwait == 0 {
@@ -4740,7 +4764,7 @@ func entersyscallblock() {
 	gp.m.syscalltick = gp.m.p.ptr().syscalltick
 	gp.m.p.ptr().syscalltick++
 
-	sched.nGsyscallNoP.Add(1)
+	addGSyscallNoP(gp.m) // We're going to give up our P.
 
 	// Leave SP around for GC and traceback.
 	pc := sys.GetCallerPC()
@@ -4978,8 +5002,8 @@ func exitsyscallTryGetP(oldp *p) *p {
 	if oldp != nil {
 		if thread, ok := setBlockOnExitSyscall(oldp); ok {
 			thread.takeP()
+			addGSyscallNoP(thread.mp) // takeP does the opposite, but this is a net zero change.
 			thread.resume()
-			sched.nGsyscallNoP.Add(-1) // takeP adds 1.
 			return oldp
 		}
 	}
@@ -4994,7 +5018,7 @@ func exitsyscallTryGetP(oldp *p) *p {
 		}
 		unlock(&sched.lock)
 		if pp != nil {
-			sched.nGsyscallNoP.Add(-1)
+			decGSyscallNoP(getg().m) // We got a P for ourselves.
 			return pp
 		}
 	}
@@ -5020,7 +5044,7 @@ func exitsyscallNoP(gp *g) {
 		trace.GoSysExit(true)
 		traceRelease(trace)
 	}
-	sched.nGsyscallNoP.Add(-1)
+	decGSyscallNoP(getg().m)
 	dropg()
 	lock(&sched.lock)
 	var pp *p
@@ -5056,6 +5080,41 @@ func exitsyscallNoP(gp *g) {
 	}
 	stopm()
 	schedule() // Never returns.
+}
+
+// addGSyscallNoP must be called when a goroutine in a syscall loses its P.
+// This function updates all relevant accounting.
+//
+// nosplit because it's called on the syscall paths.
+//
+//go:nosplit
+func addGSyscallNoP(mp *m) {
+	// It's safe to read isExtraInC here because it's only mutated
+	// outside of _Gsyscall, and we know this thread is attached
+	// to a goroutine in _Gsyscall and blocked from exiting.
+	if !mp.isExtraInC {
+		// Increment nGsyscallNoP since we're taking away a P
+		// from a _Gsyscall goroutine, but only if isExtraInC
+		// is not set on the M. If it is, then this thread is
+		// back to being a full C thread, and will just inflate
+		// the count of not-in-go goroutines. See go.dev/issue/76435.
+		sched.nGsyscallNoP.Add(1)
+	}
+}
+
+// decGSsyscallNoP must be called whenever a goroutine in a syscall without
+// a P exits the system call. This function updates all relevant accounting.
+//
+// nosplit because it's called from dropm.
+//
+//go:nosplit
+func decGSyscallNoP(mp *m) {
+	// Update nGsyscallNoP, but only if this is not a thread coming
+	// out of C. See the comment in addGSyscallNoP. This logic must match,
+	// to avoid unmatched increments and decrements.
+	if !mp.isExtraInC {
+		sched.nGsyscallNoP.Add(-1)
+	}
 }
 
 // Called from syscall package before fork.
@@ -5202,6 +5261,10 @@ func malg(stacksize int32) *g {
 // The compiler turns a go statement into a call to this.
 func newproc(fn *funcval) {
 	gp := getg()
+	if goexperiment.RuntimeSecret && gp.secret > 0 {
+		panic("goroutine spawned while running in secret mode")
+	}
+
 	pc := sys.GetCallerPC()
 	systemstack(func() {
 		newg := newproc1(fn, gp, pc, false, waitReasonZero)
@@ -5311,6 +5374,9 @@ func newproc1(fn *funcval, callergp *g, callerpc uintptr, parked bool, waitreaso
 		trace.GoCreate(newg, newg.startpc, parked)
 		traceRelease(trace)
 	}
+
+	// fips140 bubble
+	newg.fipsOnlyBypass = callergp.fipsOnlyBypass
 
 	// Set up race context.
 	if raceenabled {
@@ -6036,8 +6102,10 @@ func procresize(nprocs int32) *p {
 		unlock(&allpLock)
 	}
 
+	// Assign Ms to Ps with runnable goroutines.
 	var runnablePs *p
 	var runnablePsNeedM *p
+	var idlePs *p
 	for i := nprocs - 1; i >= 0; i-- {
 		pp := allp[i]
 		if gp.m.p.ptr() == pp {
@@ -6045,7 +6113,8 @@ func procresize(nprocs int32) *p {
 		}
 		pp.status = _Pidle
 		if runqempty(pp) {
-			pidleput(pp, now)
+			pp.link.set(idlePs)
+			idlePs = pp
 			continue
 		}
 
@@ -6071,6 +6140,8 @@ func procresize(nprocs int32) *p {
 		pp.link.set(runnablePs)
 		runnablePs = pp
 	}
+	// Assign Ms to remaining runnable Ps without usable oldm. See comment
+	// above.
 	for runnablePsNeedM != nil {
 		pp := runnablePsNeedM
 		runnablePsNeedM = pp.link.ptr()
@@ -6079,6 +6150,62 @@ func procresize(nprocs int32) *p {
 		pp.m.set(mp)
 		pp.link.set(runnablePs)
 		runnablePs = pp
+	}
+
+	// Now that we've assigned Ms to Ps with runnable goroutines, assign GC
+	// mark workers to remaining idle Ps, if needed.
+	//
+	// By assigning GC workers to Ps here, we slightly speed up starting
+	// the world, as we will start enough Ps to run all of the user
+	// goroutines and GC mark workers all at once, rather than using a
+	// sequence of wakep calls as each P's findRunnable realizes it needs
+	// to run a mark worker instead of a user goroutine.
+	//
+	// By assigning GC workers to Ps only _after_ previously-running Ps are
+	// assigned Ms, we ensure that goroutines previously running on a P
+	// continue to run on the same P, with GC mark workers preferring
+	// previously-idle Ps. This helps prevent goroutines from shuffling
+	// around too much across STW.
+	//
+	// N.B., if there aren't enough Ps left in idlePs for all of the GC
+	// mark workers, then findRunnable will still choose to run mark
+	// workers on Ps assigned above.
+	//
+	// N.B., we do this during any STW in the mark phase, not just the
+	// sweep termination STW that starts the mark phase. gcBgMarkWorker
+	// always preempts by removing itself from the P, so even unrelated
+	// STWs during the mark require that Ps reselect mark workers upon
+	// restart.
+	if gcBlackenEnabled != 0 {
+		for idlePs != nil {
+			pp := idlePs
+
+			ok, _ := gcController.assignWaitingGCWorker(pp, now)
+			if !ok {
+				// No more mark workers needed.
+				break
+			}
+
+			// Got a worker, P is now runnable.
+			//
+			// mget may return nil if there aren't enough Ms, in
+			// which case startTheWorldWithSema will start one.
+			//
+			// N.B. findRunnableGCWorker will make the worker G
+			// itself runnable.
+			idlePs = pp.link.ptr()
+			mp := mget()
+			pp.m.set(mp)
+			pp.link.set(runnablePs)
+			runnablePs = pp
+		}
+	}
+
+	// Finally, any remaining Ps are truly idle.
+	for idlePs != nil {
+		pp := idlePs
+		idlePs = pp.link.ptr()
+		pidleput(pp, now)
 	}
 
 	stealOrder.reset(uint32(nprocs))
@@ -6183,6 +6310,10 @@ func releasepNoTrace() *p {
 		print("releasep: m=", gp.m, " m->p=", gp.m.p.ptr(), " p->m=", hex(pp.m), " p->status=", pp.status, "\n")
 		throw("releasep: invalid p state")
 	}
+
+	// P must clear if nextGCMarkWorker if it stops.
+	gcController.releaseNextGCMarkWorker(pp)
+
 	gp.m.p = 0
 	pp.m = 0
 	pp.status = _Pidle
@@ -6663,7 +6794,7 @@ func (s syscallingThread) releaseP(state uint32) {
 		trace.ProcSteal(s.pp)
 		traceRelease(trace)
 	}
-	sched.nGsyscallNoP.Add(1)
+	addGSyscallNoP(s.mp)
 	s.pp.syscalltick++
 }
 

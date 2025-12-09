@@ -551,8 +551,11 @@ func MapNextArenaHint() (start, end uintptr, ok bool) {
 	return
 }
 
-func GetNextArenaHint() uintptr {
-	return mheap_.arenaHints.addr
+func NextArenaHint() (uintptr, bool) {
+	if mheap_.arenaHints == nil {
+		return 0, false
+	}
+	return mheap_.arenaHints.addr, true
 }
 
 type G = g
@@ -1978,6 +1981,8 @@ func TraceStack(gp *G, tab *TraceStackTable) {
 	traceStack(0, gp, (*traceStackTable)(tab))
 }
 
+var X86HasAVX = &x86HasAVX
+
 var DebugDecorateMappings = &debug.decoratemappings
 
 func SetVMANameSupported() bool { return setVMANameSupported() }
@@ -2061,4 +2066,16 @@ func HexdumpWords(p, bytes uintptr) string {
 		panic("HexdumpWords buf too small")
 	}
 	return string(buf[:n])
+}
+
+// DumpPrintQuoted provides access to print(quoted()) for the tests in
+// runtime/print_quoted_test.go, allowing us to test that implementation.
+func DumpPrintQuoted(s string) string {
+	gp := getg()
+	gp.writebuf = make([]byte, 0, 1<<20)
+	print(quoted(s))
+	buf := gp.writebuf
+	gp.writebuf = nil
+
+	return string(buf)
 }

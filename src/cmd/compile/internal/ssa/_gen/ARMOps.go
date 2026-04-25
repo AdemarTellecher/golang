@@ -157,9 +157,10 @@ func init() {
 				outputs:  []regMask{buildReg("R0"), buildReg("R1")},
 				clobbers: buildReg("R2 R3 R12 R14"), // R14 is LR, R12 is linker trampoline scratch register
 			},
-			clobberFlags: true,
-			typ:          "(UInt32,UInt32)",
-			call:         false, // TODO(mdempsky): Should this be true?
+			clobberFlags:   true,
+			typ:            "(UInt32,UInt32)",
+			call:           false, // TODO(mdempsky): Should this be true?
+			hasSideEffects: true,
 		},
 
 		{name: "ADDS", argLength: 2, reg: gp21carry, asm: "ADD", commutative: true},      // arg0 + arg1, set carry flag
@@ -432,6 +433,7 @@ func init() {
 		// function calls
 		{name: "CALLstatic", argLength: 1, reg: regInfo{clobbers: callerSave}, aux: "CallOff", clobberFlags: true, call: true},                                              // call static function aux.(*obj.LSym).  arg0=mem, auxint=argsize, returns mem
 		{name: "CALLtail", argLength: 1, reg: regInfo{clobbers: callerSave}, aux: "CallOff", clobberFlags: true, call: true, tailCall: true},                                // tail call static function aux.(*obj.LSym).  arg0=mem, auxint=argsize, returns mem
+		{name: "CALLtailinter", argLength: 2, reg: regInfo{inputs: []regMask{gp}, clobbers: callerSave}, aux: "CallOff", clobberFlags: true, call: true, tailCall: true},    // tail call fn by pointer. arg0=codeptr, arg1=mem, auxint=argsize, returns mem
 		{name: "CALLclosure", argLength: 3, reg: regInfo{inputs: []regMask{gpsp, buildReg("R7"), 0}, clobbers: callerSave}, aux: "CallOff", clobberFlags: true, call: true}, // call function via closure.  arg0=codeptr, arg1=closure, arg2=mem, auxint=argsize, returns mem
 		{name: "CALLinter", argLength: 2, reg: regInfo{inputs: []regMask{gp}, clobbers: callerSave}, aux: "CallOff", clobberFlags: true, call: true},                        // call fn by pointer.  arg0=codeptr, arg1=mem, auxint=argsize, returns mem
 

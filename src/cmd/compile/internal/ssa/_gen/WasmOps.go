@@ -120,10 +120,11 @@ func init() {
 	)
 
 	var WasmOps = []opData{
-		{name: "LoweredStaticCall", argLength: 1, reg: regInfo{clobbers: callerSave}, aux: "CallOff", call: true},                                // call static function aux.(*obj.LSym). arg0=mem, auxint=argsize, returns mem
-		{name: "LoweredTailCall", argLength: 1, reg: regInfo{clobbers: callerSave}, aux: "CallOff", call: true, tailCall: true},                  // tail call static function aux.(*obj.LSym). arg0=mem, auxint=argsize, returns mem
-		{name: "LoweredClosureCall", argLength: 3, reg: regInfo{inputs: []regMask{gp, gp, 0}, clobbers: callerSave}, aux: "CallOff", call: true}, // call function via closure. arg0=codeptr, arg1=closure, arg2=mem, auxint=argsize, returns mem
-		{name: "LoweredInterCall", argLength: 2, reg: regInfo{inputs: []regMask{gp}, clobbers: callerSave}, aux: "CallOff", call: true},          // call fn by pointer. arg0=codeptr, arg1=mem, auxint=argsize, returns mem
+		{name: "LoweredStaticCall", argLength: 1, reg: regInfo{clobbers: callerSave}, aux: "CallOff", call: true},                                           // call static function aux.(*obj.LSym). arg0=mem, auxint=argsize, returns mem
+		{name: "LoweredTailCall", argLength: 1, reg: regInfo{clobbers: callerSave}, aux: "CallOff", call: true, tailCall: true},                             // tail call static function aux.(*obj.LSym). arg0=mem, auxint=argsize, returns mem
+		{name: "LoweredTailCallInter", argLength: 2, reg: regInfo{inputs: []regMask{gp}, clobbers: callerSave}, aux: "CallOff", call: true, tailCall: true}, // tail call fn by pointer. arg0=codeptr, arg1=mem, auxint=argsize, returns mem
+		{name: "LoweredClosureCall", argLength: 3, reg: regInfo{inputs: []regMask{gp, gp, 0}, clobbers: callerSave}, aux: "CallOff", call: true},            // call function via closure. arg0=codeptr, arg1=closure, arg2=mem, auxint=argsize, returns mem
+		{name: "LoweredInterCall", argLength: 2, reg: regInfo{inputs: []regMask{gp}, clobbers: callerSave}, aux: "CallOff", call: true},                     // call fn by pointer. arg0=codeptr, arg1=mem, auxint=argsize, returns mem
 
 		{name: "LoweredAddr", argLength: 1, reg: gp11, aux: "SymOff", rematerializeable: true, symEffect: "Addr"}, // returns base+aux+auxint, arg0=base
 		{name: "LoweredMove", argLength: 3, reg: regInfo{inputs: []regMask{gp, gp}}, aux: "Int64"},                // large move. arg0=dst, arg1=src, arg2=mem, auxint=len, returns mem
@@ -195,20 +196,20 @@ func init() {
 		{name: "F64Le", asm: "F64Le", argLength: 2, reg: fp64_21gp, typ: "Bool"}, // arg0 <= arg1
 		{name: "F64Ge", asm: "F64Ge", argLength: 2, reg: fp64_21gp, typ: "Bool"}, // arg0 >= arg1
 
-		{name: "I64Add", asm: "I64Add", argLength: 2, reg: gp21, typ: "Int64"},                    // arg0 + arg1
-		{name: "I64AddConst", asm: "I64Add", argLength: 1, reg: gp11, aux: "Int64", typ: "Int64"}, // arg0 + aux
-		{name: "I64Sub", asm: "I64Sub", argLength: 2, reg: gp21, typ: "Int64"},                    // arg0 - arg1
-		{name: "I64Mul", asm: "I64Mul", argLength: 2, reg: gp21, typ: "Int64"},                    // arg0 * arg1
-		{name: "I64DivS", asm: "I64DivS", argLength: 2, reg: gp21, typ: "Int64"},                  // arg0 / arg1 (signed)
-		{name: "I64DivU", asm: "I64DivU", argLength: 2, reg: gp21, typ: "Int64"},                  // arg0 / arg1 (unsigned)
-		{name: "I64RemS", asm: "I64RemS", argLength: 2, reg: gp21, typ: "Int64"},                  // arg0 % arg1 (signed)
-		{name: "I64RemU", asm: "I64RemU", argLength: 2, reg: gp21, typ: "Int64"},                  // arg0 % arg1 (unsigned)
-		{name: "I64And", asm: "I64And", argLength: 2, reg: gp21, typ: "Int64"},                    // arg0 & arg1
-		{name: "I64Or", asm: "I64Or", argLength: 2, reg: gp21, typ: "Int64"},                      // arg0 | arg1
-		{name: "I64Xor", asm: "I64Xor", argLength: 2, reg: gp21, typ: "Int64"},                    // arg0 ^ arg1
-		{name: "I64Shl", asm: "I64Shl", argLength: 2, reg: gp21, typ: "Int64"},                    // arg0 << (arg1 % 64)
-		{name: "I64ShrS", asm: "I64ShrS", argLength: 2, reg: gp21, typ: "Int64"},                  // arg0 >> (arg1 % 64) (signed)
-		{name: "I64ShrU", asm: "I64ShrU", argLength: 2, reg: gp21, typ: "Int64"},                  // arg0 >> (arg1 % 64) (unsigned)
+		{name: "I64Add", asm: "I64Add", argLength: 2, reg: gp21, typ: "Int64"},                         // arg0 + arg1
+		{name: "I64AddConst", asm: "I64Add", argLength: 1, reg: gp11, aux: "Int64", typ: "Int64"},      // arg0 + aux
+		{name: "I64Sub", asm: "I64Sub", argLength: 2, reg: gp21, typ: "Int64"},                         // arg0 - arg1
+		{name: "I64Mul", asm: "I64Mul", argLength: 2, reg: gp21, typ: "Int64"},                         // arg0 * arg1
+		{name: "I64DivS", asm: "I64DivS", argLength: 2, reg: gp21, typ: "Int64", hasSideEffects: true}, // arg0 / arg1 (signed)
+		{name: "I64DivU", asm: "I64DivU", argLength: 2, reg: gp21, typ: "Int64", hasSideEffects: true}, // arg0 / arg1 (unsigned)
+		{name: "I64RemS", asm: "I64RemS", argLength: 2, reg: gp21, typ: "Int64", hasSideEffects: true}, // arg0 % arg1 (signed)
+		{name: "I64RemU", asm: "I64RemU", argLength: 2, reg: gp21, typ: "Int64", hasSideEffects: true}, // arg0 % arg1 (unsigned)
+		{name: "I64And", asm: "I64And", argLength: 2, reg: gp21, typ: "Int64"},                         // arg0 & arg1
+		{name: "I64Or", asm: "I64Or", argLength: 2, reg: gp21, typ: "Int64"},                           // arg0 | arg1
+		{name: "I64Xor", asm: "I64Xor", argLength: 2, reg: gp21, typ: "Int64"},                         // arg0 ^ arg1
+		{name: "I64Shl", asm: "I64Shl", argLength: 2, reg: gp21, typ: "Int64"},                         // arg0 << (arg1 % 64)
+		{name: "I64ShrS", asm: "I64ShrS", argLength: 2, reg: gp21, typ: "Int64"},                       // arg0 >> (arg1 % 64) (signed)
+		{name: "I64ShrU", asm: "I64ShrU", argLength: 2, reg: gp21, typ: "Int64"},                       // arg0 >> (arg1 % 64) (unsigned)
 
 		{name: "F32Neg", asm: "F32Neg", argLength: 1, reg: fp32_11, typ: "Float32"}, // -arg0
 		{name: "F32Add", asm: "F32Add", argLength: 2, reg: fp32_21, typ: "Float32"}, // arg0 + arg1

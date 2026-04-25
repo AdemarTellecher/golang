@@ -209,15 +209,15 @@ func init() {
 		{name: "AVGLU", argLength: 2, reg: gp21, commutative: true, resultInArg0: true, clobberFlags: true}, // (arg0 + arg1) / 2 as unsigned, all 32 result bits
 
 		// For DIVL, DIVW, MODL and MODW, AuxInt non-zero means that the divisor has been proved to be not -1.
-		{name: "DIVL", argLength: 2, reg: gp11div, asm: "IDIVL", aux: "Bool", clobberFlags: true}, // arg0 / arg1
-		{name: "DIVW", argLength: 2, reg: gp11div, asm: "IDIVW", aux: "Bool", clobberFlags: true}, // arg0 / arg1
-		{name: "DIVLU", argLength: 2, reg: gp11div, asm: "DIVL", clobberFlags: true},              // arg0 / arg1
-		{name: "DIVWU", argLength: 2, reg: gp11div, asm: "DIVW", clobberFlags: true},              // arg0 / arg1
+		{name: "DIVL", argLength: 2, reg: gp11div, asm: "IDIVL", aux: "Bool", clobberFlags: true, hasSideEffects: true}, // arg0 / arg1
+		{name: "DIVW", argLength: 2, reg: gp11div, asm: "IDIVW", aux: "Bool", clobberFlags: true, hasSideEffects: true}, // arg0 / arg1
+		{name: "DIVLU", argLength: 2, reg: gp11div, asm: "DIVL", clobberFlags: true, hasSideEffects: true},              // arg0 / arg1
+		{name: "DIVWU", argLength: 2, reg: gp11div, asm: "DIVW", clobberFlags: true, hasSideEffects: true},              // arg0 / arg1
 
-		{name: "MODL", argLength: 2, reg: gp11mod, asm: "IDIVL", aux: "Bool", clobberFlags: true}, // arg0 % arg1
-		{name: "MODW", argLength: 2, reg: gp11mod, asm: "IDIVW", aux: "Bool", clobberFlags: true}, // arg0 % arg1
-		{name: "MODLU", argLength: 2, reg: gp11mod, asm: "DIVL", clobberFlags: true},              // arg0 % arg1
-		{name: "MODWU", argLength: 2, reg: gp11mod, asm: "DIVW", clobberFlags: true},              // arg0 % arg1
+		{name: "MODL", argLength: 2, reg: gp11mod, asm: "IDIVL", aux: "Bool", clobberFlags: true, hasSideEffects: true}, // arg0 % arg1
+		{name: "MODW", argLength: 2, reg: gp11mod, asm: "IDIVW", aux: "Bool", clobberFlags: true, hasSideEffects: true}, // arg0 % arg1
+		{name: "MODLU", argLength: 2, reg: gp11mod, asm: "DIVL", clobberFlags: true, hasSideEffects: true},              // arg0 % arg1
+		{name: "MODWU", argLength: 2, reg: gp11mod, asm: "DIVW", clobberFlags: true, hasSideEffects: true},              // arg0 % arg1
 
 		{name: "ANDL", argLength: 2, reg: gp21, asm: "ANDL", commutative: true, resultInArg0: true, clobberFlags: true}, // arg0 & arg1
 		{name: "ANDLconst", argLength: 1, reg: gp11, asm: "ANDL", aux: "Int32", resultInArg0: true, clobberFlags: true}, // arg0 & auxint
@@ -459,6 +459,7 @@ func init() {
 
 		{name: "CALLstatic", argLength: 1, reg: regInfo{clobbers: callerSave}, aux: "CallOff", clobberFlags: true, call: true},                                              // call static function aux.(*obj.LSym).  arg0=mem, auxint=argsize, returns mem
 		{name: "CALLtail", argLength: 1, reg: regInfo{clobbers: callerSave}, aux: "CallOff", clobberFlags: true, call: true, tailCall: true},                                // tail call static function aux.(*obj.LSym).  arg0=mem, auxint=argsize, returns mem
+		{name: "CALLtailinter", argLength: 2, reg: regInfo{inputs: []regMask{gp}, clobbers: callerSave}, aux: "CallOff", clobberFlags: true, call: true, tailCall: true},    // tail call fn by pointer.  arg0=codeptr, arg1=mem, auxint=argsize, returns mem
 		{name: "CALLclosure", argLength: 3, reg: regInfo{inputs: []regMask{gpsp, buildReg("DX"), 0}, clobbers: callerSave}, aux: "CallOff", clobberFlags: true, call: true}, // call function via closure.  arg0=codeptr, arg1=closure, arg2=mem, auxint=argsize, returns mem
 		{name: "CALLinter", argLength: 2, reg: regInfo{inputs: []regMask{gp}, clobbers: callerSave}, aux: "CallOff", clobberFlags: true, call: true},                        // call fn by pointer.  arg0=codeptr, arg1=mem, auxint=argsize, returns mem
 

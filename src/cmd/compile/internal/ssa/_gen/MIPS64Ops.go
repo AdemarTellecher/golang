@@ -164,14 +164,14 @@ func init() {
 	)
 	ops := []opData{
 		// binary ops
-		{name: "ADDV", argLength: 2, reg: gp21, asm: "ADDVU", commutative: true},                             // arg0 + arg1
-		{name: "ADDVconst", argLength: 1, reg: gp11sp, asm: "ADDVU", aux: "Int64"},                           // arg0 + auxInt. auxInt is 32-bit, also in other *const ops.
-		{name: "SUBV", argLength: 2, reg: gp21, asm: "SUBVU"},                                                // arg0 - arg1
-		{name: "SUBVconst", argLength: 1, reg: gp11, asm: "SUBVU", aux: "Int64"},                             // arg0 - auxInt
-		{name: "MULV", argLength: 2, reg: gp2hilo, asm: "MULV", commutative: true, typ: "(Int64,Int64)"},     // arg0 * arg1, signed, results hi,lo
-		{name: "MULVU", argLength: 2, reg: gp2hilo, asm: "MULVU", commutative: true, typ: "(UInt64,UInt64)"}, // arg0 * arg1, unsigned, results hi,lo
-		{name: "DIVV", argLength: 2, reg: gp2hilo, asm: "DIVV", typ: "(Int64,Int64)"},                        // arg0 / arg1, signed, results hi=arg0%arg1,lo=arg0/arg1
-		{name: "DIVVU", argLength: 2, reg: gp2hilo, asm: "DIVVU", typ: "(UInt64,UInt64)"},                    // arg0 / arg1, signed, results hi=arg0%arg1,lo=arg0/arg1
+		{name: "ADDV", argLength: 2, reg: gp21, asm: "ADDVU", commutative: true},                                // arg0 + arg1
+		{name: "ADDVconst", argLength: 1, reg: gp11sp, asm: "ADDVU", aux: "Int64"},                              // arg0 + auxInt. auxInt is 32-bit, also in other *const ops.
+		{name: "SUBV", argLength: 2, reg: gp21, asm: "SUBVU"},                                                   // arg0 - arg1
+		{name: "SUBVconst", argLength: 1, reg: gp11, asm: "SUBVU", aux: "Int64"},                                // arg0 - auxInt
+		{name: "MULV", argLength: 2, reg: gp2hilo, asm: "MULV", commutative: true, typ: "(Int64,Int64)"},        // arg0 * arg1, signed, results hi,lo
+		{name: "MULVU", argLength: 2, reg: gp2hilo, asm: "MULVU", commutative: true, typ: "(UInt64,UInt64)"},    // arg0 * arg1, unsigned, results hi,lo
+		{name: "DIVV", argLength: 2, reg: gp2hilo, asm: "DIVV", typ: "(Int64,Int64)", hasSideEffects: true},     // arg0 / arg1, signed, results hi=arg0%arg1,lo=arg0/arg1
+		{name: "DIVVU", argLength: 2, reg: gp2hilo, asm: "DIVVU", typ: "(UInt64,UInt64)", hasSideEffects: true}, // arg0 / arg1, signed, results hi=arg0%arg1,lo=arg0/arg1
 
 		{name: "ADDF", argLength: 2, reg: fp21, asm: "ADDF", commutative: true}, // arg0 + arg1
 		{name: "ADDD", argLength: 2, reg: fp21, asm: "ADDD", commutative: true}, // arg0 + arg1
@@ -193,6 +193,7 @@ func init() {
 		{name: "NEGV", argLength: 1, reg: gp11},                // -arg0
 		{name: "NEGF", argLength: 1, reg: fp11, asm: "NEGF"},   // -arg0, float32
 		{name: "NEGD", argLength: 1, reg: fp11, asm: "NEGD"},   // -arg0, float64
+		{name: "ABSF", argLength: 1, reg: fp11, asm: "ABSF"},   // abs(arg0), float32
 		{name: "ABSD", argLength: 1, reg: fp11, asm: "ABSD"},   // abs(arg0), float64
 		{name: "SQRTD", argLength: 1, reg: fp11, asm: "SQRTD"}, // sqrt(arg0), float64
 		{name: "SQRTF", argLength: 1, reg: fp11, asm: "SQRTF"}, // sqrt(arg0), float32
@@ -275,6 +276,7 @@ func init() {
 		// function calls
 		{name: "CALLstatic", argLength: 1, reg: regInfo{clobbers: callerSave}, aux: "CallOff", clobberFlags: true, call: true},                                               // call static function aux.(*obj.LSym).  arg0=mem, auxint=argsize, returns mem
 		{name: "CALLtail", argLength: 1, reg: regInfo{clobbers: callerSave}, aux: "CallOff", clobberFlags: true, call: true, tailCall: true},                                 // tail call static function aux.(*obj.LSym).  arg0=mem, auxint=argsize, returns mem
+		{name: "CALLtailinter", argLength: 2, reg: regInfo{inputs: []regMask{gp}, clobbers: callerSave}, aux: "CallOff", clobberFlags: true, call: true, tailCall: true},     // tail call fn by pointer.  arg0=codeptr, arg1=mem, auxint=argsize, returns mem
 		{name: "CALLclosure", argLength: 3, reg: regInfo{inputs: []regMask{gpsp, buildReg("R22"), 0}, clobbers: callerSave}, aux: "CallOff", clobberFlags: true, call: true}, // call function via closure.  arg0=codeptr, arg1=closure, arg2=mem, auxint=argsize, returns mem
 		{name: "CALLinter", argLength: 2, reg: regInfo{inputs: []regMask{gp}, clobbers: callerSave}, aux: "CallOff", clobberFlags: true, call: true},                         // call fn by pointer.  arg0=codeptr, arg1=mem, auxint=argsize, returns mem
 

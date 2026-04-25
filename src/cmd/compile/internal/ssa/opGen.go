@@ -561,6 +561,7 @@ const (
 	Op386REPSTOSL
 	Op386CALLstatic
 	Op386CALLtail
+	Op386CALLtailinter
 	Op386CALLclosure
 	Op386CALLinter
 	Op386DUFFCOPY
@@ -929,6 +930,7 @@ const (
 	OpAMD64SQRTSD
 	OpAMD64SQRTSS
 	OpAMD64ROUNDSD
+	OpAMD64ROUNDSS
 	OpAMD64LoweredRound32F
 	OpAMD64LoweredRound64F
 	OpAMD64VFMADD231SS
@@ -1059,6 +1061,7 @@ const (
 	OpAMD64REPSTOSQ
 	OpAMD64CALLstatic
 	OpAMD64CALLtail
+	OpAMD64CALLtailinter
 	OpAMD64CALLclosure
 	OpAMD64CALLinter
 	OpAMD64LoweredMove
@@ -4108,6 +4111,7 @@ const (
 	OpARMSRAcond
 	OpARMCALLstatic
 	OpARMCALLtail
+	OpARMCALLtailinter
 	OpARMCALLclosure
 	OpARMCALLinter
 	OpARMLoweredNilCheck
@@ -4188,6 +4192,7 @@ const (
 	OpARM64NEGSflags
 	OpARM64NGCzerocarry
 	OpARM64FABSD
+	OpARM64FABSS
 	OpARM64FNEGS
 	OpARM64FNEGD
 	OpARM64FSQRTD
@@ -4314,11 +4319,13 @@ const (
 	OpARM64MOVDload
 	OpARM64FMOVSload
 	OpARM64FMOVDload
+	OpARM64FMOVQload
 	OpARM64LDP
 	OpARM64LDPW
 	OpARM64LDPSW
 	OpARM64FLDPD
 	OpARM64FLDPS
+	OpARM64FLDPQ
 	OpARM64MOVDloadidx
 	OpARM64MOVWloadidx
 	OpARM64MOVWUloadidx
@@ -4341,10 +4348,12 @@ const (
 	OpARM64MOVDstore
 	OpARM64FMOVSstore
 	OpARM64FMOVDstore
+	OpARM64FMOVQstore
 	OpARM64STP
 	OpARM64STPW
 	OpARM64FSTPD
 	OpARM64FSTPS
+	OpARM64FSTPQ
 	OpARM64MOVBstoreidx
 	OpARM64MOVHstoreidx
 	OpARM64MOVWstoreidx
@@ -4391,6 +4400,11 @@ const (
 	OpARM64FRINTND
 	OpARM64FRINTPD
 	OpARM64FRINTZD
+	OpARM64FRINTAS
+	OpARM64FRINTMS
+	OpARM64FRINTNS
+	OpARM64FRINTPS
+	OpARM64FRINTZS
 	OpARM64CSEL
 	OpARM64CSEL0
 	OpARM64CSINC
@@ -4407,6 +4421,7 @@ const (
 	OpARM64CCMNWconst
 	OpARM64CALLstatic
 	OpARM64CALLtail
+	OpARM64CALLtailinter
 	OpARM64CALLclosure
 	OpARM64CALLinter
 	OpARM64LoweredNilCheck
@@ -4639,6 +4654,7 @@ const (
 	OpLOONG64LoweredRound64F
 	OpLOONG64CALLstatic
 	OpLOONG64CALLtail
+	OpLOONG64CALLtailinter
 	OpLOONG64CALLclosure
 	OpLOONG64CALLinter
 	OpLOONG64LoweredZero
@@ -4772,6 +4788,7 @@ const (
 	OpMIPSMOVDF
 	OpMIPSCALLstatic
 	OpMIPSCALLtail
+	OpMIPSCALLtailinter
 	OpMIPSCALLclosure
 	OpMIPSCALLinter
 	OpMIPSLoweredAtomicLoad8
@@ -4828,6 +4845,7 @@ const (
 	OpMIPS64NEGV
 	OpMIPS64NEGF
 	OpMIPS64NEGD
+	OpMIPS64ABSF
 	OpMIPS64ABSD
 	OpMIPS64SQRTD
 	OpMIPS64SQRTF
@@ -4891,6 +4909,7 @@ const (
 	OpMIPS64MOVDF
 	OpMIPS64CALLstatic
 	OpMIPS64CALLtail
+	OpMIPS64CALLtailinter
 	OpMIPS64CALLclosure
 	OpMIPS64CALLinter
 	OpMIPS64DUFFZERO
@@ -5133,6 +5152,7 @@ const (
 	OpPPC64LoweredRound64F
 	OpPPC64CALLstatic
 	OpPPC64CALLtail
+	OpPPC64CALLtailinter
 	OpPPC64CALLclosure
 	OpPPC64CALLinter
 	OpPPC64LoweredZero
@@ -5272,6 +5292,7 @@ const (
 	OpRISCV64LoweredRound64F
 	OpRISCV64CALLstatic
 	OpRISCV64CALLtail
+	OpRISCV64CALLtailinter
 	OpRISCV64CALLclosure
 	OpRISCV64CALLinter
 	OpRISCV64LoweredZero
@@ -5311,6 +5332,7 @@ const (
 	OpRISCV64FNMADDS
 	OpRISCV64FNMSUBS
 	OpRISCV64FSQRTS
+	OpRISCV64FABSS
 	OpRISCV64FNEGS
 	OpRISCV64FMVSX
 	OpRISCV64FMVXS
@@ -5356,6 +5378,8 @@ const (
 	OpRISCV64LoweredFMAXD
 	OpRISCV64FCLASSS
 	OpRISCV64FCLASSD
+	OpRISCV64CZEROEQZ
+	OpRISCV64CZERONEZ
 
 	OpS390XFADDS
 	OpS390XFADD
@@ -5549,6 +5573,7 @@ const (
 	OpS390XCLEAR
 	OpS390XCALLstatic
 	OpS390XCALLtail
+	OpS390XCALLtailinter
 	OpS390XCALLclosure
 	OpS390XCALLinter
 	OpS390XInvertFlags
@@ -5604,6 +5629,7 @@ const (
 
 	OpWasmLoweredStaticCall
 	OpWasmLoweredTailCall
+	OpWasmLoweredTailCallInter
 	OpWasmLoweredClosureCall
 	OpWasmLoweredInterCall
 	OpWasmLoweredAddr
@@ -5972,10 +5998,12 @@ const (
 	OpStaticCall
 	OpInterCall
 	OpTailCall
+	OpTailCallInter
 	OpClosureLECall
 	OpStaticLECall
 	OpInterLECall
 	OpTailLECall
+	OpTailLECallInter
 	OpSignExt8to16
 	OpSignExt8to32
 	OpSignExt8to64
@@ -6033,7 +6061,6 @@ const (
 	OpIData
 	OpStructMake
 	OpStructSelect
-	OpArrayMake0
 	OpArrayMake1
 	OpArraySelect
 	OpStoreReg
@@ -6125,6 +6152,7 @@ const (
 	OpPrefetchCache
 	OpPrefetchCacheStreamed
 	OpMemEq
+	OpEmpty
 	OpZeroSIMD
 	OpCvt16toMask8x16
 	OpCvt32toMask8x32
@@ -8299,11 +8327,12 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:         "DIVL",
-		auxType:      auxBool,
-		argLen:       2,
-		clobberFlags: true,
-		asm:          x86.AIDIVL,
+		name:           "DIVL",
+		auxType:        auxBool,
+		argLen:         2,
+		clobberFlags:   true,
+		hasSideEffects: true,
+		asm:            x86.AIDIVL,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1},   // AX
@@ -8316,11 +8345,12 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:         "DIVW",
-		auxType:      auxBool,
-		argLen:       2,
-		clobberFlags: true,
-		asm:          x86.AIDIVW,
+		name:           "DIVW",
+		auxType:        auxBool,
+		argLen:         2,
+		clobberFlags:   true,
+		hasSideEffects: true,
+		asm:            x86.AIDIVW,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1},   // AX
@@ -8333,10 +8363,11 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:         "DIVLU",
-		argLen:       2,
-		clobberFlags: true,
-		asm:          x86.ADIVL,
+		name:           "DIVLU",
+		argLen:         2,
+		clobberFlags:   true,
+		hasSideEffects: true,
+		asm:            x86.ADIVL,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1},   // AX
@@ -8349,10 +8380,11 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:         "DIVWU",
-		argLen:       2,
-		clobberFlags: true,
-		asm:          x86.ADIVW,
+		name:           "DIVWU",
+		argLen:         2,
+		clobberFlags:   true,
+		hasSideEffects: true,
+		asm:            x86.ADIVW,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1},   // AX
@@ -8365,11 +8397,12 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:         "MODL",
-		auxType:      auxBool,
-		argLen:       2,
-		clobberFlags: true,
-		asm:          x86.AIDIVL,
+		name:           "MODL",
+		auxType:        auxBool,
+		argLen:         2,
+		clobberFlags:   true,
+		hasSideEffects: true,
+		asm:            x86.AIDIVL,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1},   // AX
@@ -8382,11 +8415,12 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:         "MODW",
-		auxType:      auxBool,
-		argLen:       2,
-		clobberFlags: true,
-		asm:          x86.AIDIVW,
+		name:           "MODW",
+		auxType:        auxBool,
+		argLen:         2,
+		clobberFlags:   true,
+		hasSideEffects: true,
+		asm:            x86.AIDIVW,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1},   // AX
@@ -8399,10 +8433,11 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:         "MODLU",
-		argLen:       2,
-		clobberFlags: true,
-		asm:          x86.ADIVL,
+		name:           "MODLU",
+		argLen:         2,
+		clobberFlags:   true,
+		hasSideEffects: true,
+		asm:            x86.ADIVL,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1},   // AX
@@ -8415,10 +8450,11 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:         "MODWU",
-		argLen:       2,
-		clobberFlags: true,
-		asm:          x86.ADIVW,
+		name:           "MODWU",
+		argLen:         2,
+		clobberFlags:   true,
+		hasSideEffects: true,
+		asm:            x86.ADIVW,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1},   // AX
@@ -10578,6 +10614,20 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
+		name:         "CALLtailinter",
+		auxType:      auxCallOff,
+		argLen:       2,
+		clobberFlags: true,
+		call:         true,
+		tailCall:     true,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 239}, // AX CX DX BX BP SI DI
+			},
+			clobbers: 65519, // AX CX DX BX BP SI DI X0 X1 X2 X3 X4 X5 X6 X7
+		},
+	},
+	{
 		name:         "CALLclosure",
 		auxType:      auxCallOff,
 		argLen:       3,
@@ -11958,11 +12008,12 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:         "DIVQ",
-		auxType:      auxBool,
-		argLen:       2,
-		clobberFlags: true,
-		asm:          x86.AIDIVQ,
+		name:           "DIVQ",
+		auxType:        auxBool,
+		argLen:         2,
+		clobberFlags:   true,
+		hasSideEffects: true,
+		asm:            x86.AIDIVQ,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1},     // AX
@@ -11975,11 +12026,12 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:         "DIVL",
-		auxType:      auxBool,
-		argLen:       2,
-		clobberFlags: true,
-		asm:          x86.AIDIVL,
+		name:           "DIVL",
+		auxType:        auxBool,
+		argLen:         2,
+		clobberFlags:   true,
+		hasSideEffects: true,
+		asm:            x86.AIDIVL,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1},     // AX
@@ -11992,11 +12044,12 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:         "DIVW",
-		auxType:      auxBool,
-		argLen:       2,
-		clobberFlags: true,
-		asm:          x86.AIDIVW,
+		name:           "DIVW",
+		auxType:        auxBool,
+		argLen:         2,
+		clobberFlags:   true,
+		hasSideEffects: true,
+		asm:            x86.AIDIVW,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1},     // AX
@@ -12009,10 +12062,11 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:         "DIVQU",
-		argLen:       2,
-		clobberFlags: true,
-		asm:          x86.ADIVQ,
+		name:           "DIVQU",
+		argLen:         2,
+		clobberFlags:   true,
+		hasSideEffects: true,
+		asm:            x86.ADIVQ,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1},     // AX
@@ -12025,10 +12079,11 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:         "DIVLU",
-		argLen:       2,
-		clobberFlags: true,
-		asm:          x86.ADIVL,
+		name:           "DIVLU",
+		argLen:         2,
+		clobberFlags:   true,
+		hasSideEffects: true,
+		asm:            x86.ADIVL,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1},     // AX
@@ -12041,10 +12096,11 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:         "DIVWU",
-		argLen:       2,
-		clobberFlags: true,
-		asm:          x86.ADIVW,
+		name:           "DIVWU",
+		argLen:         2,
+		clobberFlags:   true,
+		hasSideEffects: true,
+		asm:            x86.ADIVW,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1},     // AX
@@ -12251,10 +12307,11 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:         "DIVQU2",
-		argLen:       3,
-		clobberFlags: true,
-		asm:          x86.ADIVQ,
+		name:           "DIVQU2",
+		argLen:         3,
+		clobberFlags:   true,
+		hasSideEffects: true,
+		asm:            x86.ADIVQ,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 4},     // DX
@@ -16230,6 +16287,20 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
+		name:    "ROUNDSS",
+		auxType: auxInt8,
+		argLen:  1,
+		asm:     x86.AROUNDSS,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 2147418112}, // X0 X1 X2 X3 X4 X5 X6 X7 X8 X9 X10 X11 X12 X13 X14
+			},
+			outputs: []outputInfo{
+				{0, 2147418112}, // X0 X1 X2 X3 X4 X5 X6 X7 X8 X9 X10 X11 X12 X13 X14
+			},
+		},
+	},
+	{
 		name:         "LoweredRound32F",
 		argLen:       1,
 		resultInArg0: true,
@@ -18045,6 +18116,20 @@ var opcodeTable = [...]opInfo{
 		call:         true,
 		tailCall:     true,
 		reg: regInfo{
+			clobbers: 2147483631, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 g R15 X0 X1 X2 X3 X4 X5 X6 X7 X8 X9 X10 X11 X12 X13 X14
+		},
+	},
+	{
+		name:         "CALLtailinter",
+		auxType:      auxCallOff,
+		argLen:       -1,
+		clobberFlags: true,
+		call:         true,
+		tailCall:     true,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
+			},
 			clobbers: 2147483631, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 g R15 X0 X1 X2 X3 X4 X5 X6 X7 X8 X9 X10 X11 X12 X13 X14
 		},
 	},
@@ -39888,7 +39973,7 @@ var opcodeTable = [...]opInfo{
 		asm:     x86.AVPEXTRB,
 		reg: regInfo{
 			inputs: []inputInfo{
-				{0, 281474976645120}, // X0 X1 X2 X3 X4 X5 X6 X7 X8 X9 X10 X11 X12 X13 X14 X15 X16 X17 X18 X19 X20 X21 X22 X23 X24 X25 X26 X27 X28 X29 X30 X31
+				{0, 2147418112}, // X0 X1 X2 X3 X4 X5 X6 X7 X8 X9 X10 X11 X12 X13 X14
 			},
 			outputs: []outputInfo{
 				{0, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
@@ -39930,7 +40015,7 @@ var opcodeTable = [...]opInfo{
 		asm:     x86.AVPEXTRW,
 		reg: regInfo{
 			inputs: []inputInfo{
-				{0, 281474976645120}, // X0 X1 X2 X3 X4 X5 X6 X7 X8 X9 X10 X11 X12 X13 X14 X15 X16 X17 X18 X19 X20 X21 X22 X23 X24 X25 X26 X27 X28 X29 X30 X31
+				{0, 2147418112}, // X0 X1 X2 X3 X4 X5 X6 X7 X8 X9 X10 X11 X12 X13 X14
 			},
 			outputs: []outputInfo{
 				{0, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
@@ -40997,10 +41082,10 @@ var opcodeTable = [...]opInfo{
 		asm:     x86.AVPSHUFHW,
 		reg: regInfo{
 			inputs: []inputInfo{
-				{0, 281472829161472}, // X0 X1 X2 X3 X4 X5 X6 X7 X8 X9 X10 X11 X12 X13 X14 X16 X17 X18 X19 X20 X21 X22 X23 X24 X25 X26 X27 X28 X29 X30 X31
+				{0, 2147418112}, // X0 X1 X2 X3 X4 X5 X6 X7 X8 X9 X10 X11 X12 X13 X14
 			},
 			outputs: []outputInfo{
-				{0, 281472829161472}, // X0 X1 X2 X3 X4 X5 X6 X7 X8 X9 X10 X11 X12 X13 X14 X16 X17 X18 X19 X20 X21 X22 X23 X24 X25 X26 X27 X28 X29 X30 X31
+				{0, 2147418112}, // X0 X1 X2 X3 X4 X5 X6 X7 X8 X9 X10 X11 X12 X13 X14
 			},
 		},
 	},
@@ -41084,10 +41169,10 @@ var opcodeTable = [...]opInfo{
 		asm:     x86.AVPSHUFLW,
 		reg: regInfo{
 			inputs: []inputInfo{
-				{0, 281472829161472}, // X0 X1 X2 X3 X4 X5 X6 X7 X8 X9 X10 X11 X12 X13 X14 X16 X17 X18 X19 X20 X21 X22 X23 X24 X25 X26 X27 X28 X29 X30 X31
+				{0, 2147418112}, // X0 X1 X2 X3 X4 X5 X6 X7 X8 X9 X10 X11 X12 X13 X14
 			},
 			outputs: []outputInfo{
-				{0, 281472829161472}, // X0 X1 X2 X3 X4 X5 X6 X7 X8 X9 X10 X11 X12 X13 X14 X16 X17 X18 X19 X20 X21 X22 X23 X24 X25 X26 X27 X28 X29 X30 X31
+				{0, 2147418112}, // X0 X1 X2 X3 X4 X5 X6 X7 X8 X9 X10 X11 X12 X13 X14
 			},
 		},
 	},
@@ -61408,9 +61493,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:         "CALLudiv",
-		argLen:       2,
-		clobberFlags: true,
+		name:           "CALLudiv",
+		argLen:         2,
+		clobberFlags:   true,
+		hasSideEffects: true,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 2}, // R1
@@ -64655,6 +64741,20 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
+		name:         "CALLtailinter",
+		auxType:      auxCallOff,
+		argLen:       2,
+		clobberFlags: true,
+		call:         true,
+		tailCall:     true,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 21503}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R12 R14
+			},
+			clobbers: 4294924287, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 g R12 R14 F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15
+		},
+	},
+	{
 		name:         "CALLclosure",
 		auxType:      auxCallOff,
 		argLen:       3,
@@ -65225,9 +65325,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "DIV",
-		argLen: 2,
-		asm:    arm64.ASDIV,
+		name:           "DIV",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            arm64.ASDIV,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 402653183}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30
@@ -65239,9 +65340,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "UDIV",
-		argLen: 2,
-		asm:    arm64.AUDIV,
+		name:           "UDIV",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            arm64.AUDIV,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 402653183}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30
@@ -65253,9 +65355,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "DIVW",
-		argLen: 2,
-		asm:    arm64.ASDIVW,
+		name:           "DIVW",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            arm64.ASDIVW,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 402653183}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30
@@ -65267,9 +65370,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "UDIVW",
-		argLen: 2,
-		asm:    arm64.AUDIVW,
+		name:           "UDIVW",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            arm64.AUDIVW,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 402653183}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30
@@ -65281,9 +65385,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "MOD",
-		argLen: 2,
-		asm:    arm64.AREM,
+		name:           "MOD",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            arm64.AREM,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 402653183}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30
@@ -65295,9 +65400,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "UMOD",
-		argLen: 2,
-		asm:    arm64.AUREM,
+		name:           "UMOD",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            arm64.AUREM,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 402653183}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30
@@ -65309,9 +65415,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "MODW",
-		argLen: 2,
-		asm:    arm64.AREMW,
+		name:           "MODW",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            arm64.AREMW,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 402653183}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30
@@ -65323,9 +65430,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "UMODW",
-		argLen: 2,
-		asm:    arm64.AUREMW,
+		name:           "UMODW",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            arm64.AUREMW,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 402653183}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30
@@ -65665,6 +65773,19 @@ var opcodeTable = [...]opInfo{
 		name:   "FABSD",
 		argLen: 1,
 		asm:    arm64.AFABSD,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+			outputs: []outputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+		},
+	},
+	{
+		name:   "FABSS",
+		argLen: 1,
+		asm:    arm64.AFABSS,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
@@ -67421,6 +67542,22 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
+		name:           "FMOVQload",
+		auxType:        auxSymOff,
+		argLen:         2,
+		faultOnNilArg0: true,
+		symEffect:      SymRead,
+		asm:            arm64.AFMOVQ,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 9223372038331170815}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30 SP SB
+			},
+			outputs: []outputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+		},
+	},
+	{
 		name:           "LDP",
 		auxType:        auxSymOff,
 		argLen:         2,
@@ -67495,6 +67632,23 @@ var opcodeTable = [...]opInfo{
 		faultOnNilArg0: true,
 		symEffect:      SymRead,
 		asm:            arm64.AFLDPS,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 9223372038331170815}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30 SP SB
+			},
+			outputs: []outputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+				{1, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+		},
+	},
+	{
+		name:           "FLDPQ",
+		auxType:        auxSymOff,
+		argLen:         2,
+		faultOnNilArg0: true,
+		symEffect:      SymRead,
+		asm:            arm64.AFLDPQ,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 9223372038331170815}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30 SP SB
@@ -67814,6 +67968,20 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
+		name:           "FMOVQstore",
+		auxType:        auxSymOff,
+		argLen:         3,
+		faultOnNilArg0: true,
+		symEffect:      SymWrite,
+		asm:            arm64.AFMOVQ,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 9223372038331170815}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30 SP SB
+				{1, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+		},
+	},
+	{
 		name:           "STP",
 		auxType:        auxSymOff,
 		argLen:         4,
@@ -67865,6 +68033,21 @@ var opcodeTable = [...]opInfo{
 		faultOnNilArg0: true,
 		symEffect:      SymWrite,
 		asm:            arm64.AFSTPS,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 9223372038331170815}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30 SP SB
+				{1, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+				{2, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+		},
+	},
+	{
+		name:           "FSTPQ",
+		auxType:        auxSymOff,
+		argLen:         4,
+		faultOnNilArg0: true,
+		symEffect:      SymWrite,
+		asm:            arm64.AFSTPQ,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 9223372038331170815}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30 SP SB
@@ -68461,6 +68644,71 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
+		name:   "FRINTAS",
+		argLen: 1,
+		asm:    arm64.AFRINTAS,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+			outputs: []outputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+		},
+	},
+	{
+		name:   "FRINTMS",
+		argLen: 1,
+		asm:    arm64.AFRINTMS,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+			outputs: []outputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+		},
+	},
+	{
+		name:   "FRINTNS",
+		argLen: 1,
+		asm:    arm64.AFRINTNS,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+			outputs: []outputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+		},
+	},
+	{
+		name:   "FRINTPS",
+		argLen: 1,
+		asm:    arm64.AFRINTPS,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+			outputs: []outputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+		},
+	},
+	{
+		name:   "FRINTZS",
+		argLen: 1,
+		asm:    arm64.AFRINTZS,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+			outputs: []outputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+		},
+	},
+	{
 		name:    "CSEL",
 		auxType: auxCCop,
 		argLen:  3,
@@ -68655,6 +68903,20 @@ var opcodeTable = [...]opInfo{
 		call:         true,
 		tailCall:     true,
 		reg: regInfo{
+			clobbers: 9223372035109945343, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30 F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+		},
+	},
+	{
+		name:         "CALLtailinter",
+		auxType:      auxCallOff,
+		argLen:       -1,
+		clobberFlags: true,
+		call:         true,
+		tailCall:     true,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 335544319}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 R30
+			},
 			clobbers: 9223372035109945343, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30 F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
 		},
 	},
@@ -70026,9 +70288,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "DIVV",
-		argLen: 2,
-		asm:    loong64.ADIVV,
+		name:           "DIVV",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            loong64.ADIVV,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1073741816}, // R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19 R20 R21 g R23 R24 R25 R26 R27 R28 R29 R31
@@ -70040,9 +70303,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "DIVVU",
-		argLen: 2,
-		asm:    loong64.ADIVVU,
+		name:           "DIVVU",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            loong64.ADIVVU,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1073741816}, // R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19 R20 R21 g R23 R24 R25 R26 R27 R28 R29 R31
@@ -70054,9 +70318,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "REMV",
-		argLen: 2,
-		asm:    loong64.AREMV,
+		name:           "REMV",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            loong64.AREMV,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1073741816}, // R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19 R20 R21 g R23 R24 R25 R26 R27 R28 R29 R31
@@ -70068,9 +70333,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "REMVU",
-		argLen: 2,
-		asm:    loong64.AREMVU,
+		name:           "REMVU",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            loong64.AREMVU,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1073741816}, // R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19 R20 R21 g R23 R24 R25 R26 R27 R28 R29 R31
@@ -71791,6 +72057,20 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
+		name:         "CALLtailinter",
+		auxType:      auxCallOff,
+		argLen:       -1,
+		clobberFlags: true,
+		call:         true,
+		tailCall:     true,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 1071644664}, // R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19 R20 R21 R23 R24 R25 R26 R27 R28 R29 R31
+			},
+			clobbers: 4611686018427387896, // R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19 R20 R21 g R23 R24 R25 R26 R27 R28 R29 R31 F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+		},
+	},
+	{
 		name:         "CALLclosure",
 		auxType:      auxCallOff,
 		argLen:       -1,
@@ -71850,10 +72130,10 @@ var opcodeTable = [...]opInfo{
 		faultOnNilArg1: true,
 		reg: regInfo{
 			inputs: []inputInfo{
-				{0, 1071120376}, // R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19 R21 R23 R24 R25 R26 R27 R28 R29 R31
-				{1, 1071120376}, // R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19 R21 R23 R24 R25 R26 R27 R28 R29 R31
+				{0, 1067450360}, // R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19 R20 R21 R24 R25 R26 R27 R28 R29 R31
+				{1, 1067450360}, // R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19 R20 R21 R24 R25 R26 R27 R28 R29 R31
 			},
-			clobbers: 524288, // R20
+			clobbers: 4194304, // R23
 		},
 	},
 	{
@@ -71864,10 +72144,10 @@ var opcodeTable = [...]opInfo{
 		faultOnNilArg1: true,
 		reg: regInfo{
 			inputs: []inputInfo{
-				{0, 1070071800}, // R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19 R23 R24 R25 R26 R27 R28 R29 R31
-				{1, 1070071800}, // R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19 R23 R24 R25 R26 R27 R28 R29 R31
+				{0, 1059061752}, // R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19 R20 R21 R25 R26 R27 R28 R29 R31
+				{1, 1059061752}, // R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19 R20 R21 R25 R26 R27 R28 R29 R31
 			},
-			clobbers:     1572864, // R20 R21
+			clobbers:     12582912, // R23 R24
 			clobbersArg0: true,
 			clobbersArg1: true,
 		},
@@ -72503,9 +72783,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "DIV",
-		argLen: 2,
-		asm:    mips.ADIV,
+		name:           "DIV",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            mips.ADIV,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 469762046}, // R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19 R20 R21 R22 R24 R25 R28 g R31
@@ -72518,9 +72799,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "DIVU",
-		argLen: 2,
-		asm:    mips.ADIVU,
+		name:           "DIVU",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            mips.ADIVU,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 469762046}, // R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19 R20 R21 R22 R24 R25 R28 g R31
@@ -73580,6 +73862,20 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
+		name:         "CALLtailinter",
+		auxType:      auxCallOff,
+		argLen:       2,
+		clobberFlags: true,
+		call:         true,
+		tailCall:     true,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 335544318}, // R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19 R20 R21 R22 R24 R25 R28 R31
+			},
+			clobbers: 140737421246462, // R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19 R20 R21 R22 R24 R25 R28 g R31 F0 F2 F4 F6 F8 F10 F12 F14 F16 F18 F20 F22 F24 F26 F28 F30 HI LO
+		},
+	},
+	{
 		name:         "CALLclosure",
 		auxType:      auxCallOff,
 		argLen:       3,
@@ -74027,9 +74323,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "DIVV",
-		argLen: 2,
-		asm:    mips.ADIVV,
+		name:           "DIVV",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            mips.ADIVV,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 234881022}, // R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19 R20 R21 R22 R24 R25 g R31
@@ -74042,9 +74339,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "DIVVU",
-		argLen: 2,
-		asm:    mips.ADIVVU,
+		name:           "DIVVU",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            mips.ADIVVU,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 234881022}, // R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19 R20 R21 R22 R24 R25 g R31
@@ -74303,6 +74601,19 @@ var opcodeTable = [...]opInfo{
 		name:   "NEGD",
 		argLen: 1,
 		asm:    mips.ANEGD,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 1152921504338411520}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+			outputs: []outputInfo{
+				{0, 1152921504338411520}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+		},
+	},
+	{
+		name:   "ABSF",
+		argLen: 1,
+		asm:    mips.AABSF,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1152921504338411520}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
@@ -75148,6 +75459,20 @@ var opcodeTable = [...]opInfo{
 		call:         true,
 		tailCall:     true,
 		reg: regInfo{
+			clobbers: 4611686018393833470, // R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19 R20 R21 R22 R24 R25 g R31 F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31 HI LO
+		},
+	},
+	{
+		name:         "CALLtailinter",
+		auxType:      auxCallOff,
+		argLen:       2,
+		clobberFlags: true,
+		call:         true,
+		tailCall:     true,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 167772158}, // R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19 R20 R21 R22 R24 R25 R31
+			},
 			clobbers: 4611686018393833470, // R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19 R20 R21 R22 R24 R25 g R31 F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31 HI LO
 		},
 	},
@@ -76675,9 +77000,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "DIVD",
-		argLen: 2,
-		asm:    ppc64.ADIVD,
+		name:           "DIVD",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            ppc64.ADIVD,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1073733630}, // SP SB R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R14 R15 R16 R17 R18 R19 R20 R21 R22 R23 R24 R25 R26 R27 R28 R29
@@ -76689,9 +77015,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "DIVW",
-		argLen: 2,
-		asm:    ppc64.ADIVW,
+		name:           "DIVW",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            ppc64.ADIVW,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1073733630}, // SP SB R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R14 R15 R16 R17 R18 R19 R20 R21 R22 R23 R24 R25 R26 R27 R28 R29
@@ -76703,9 +77030,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "DIVDU",
-		argLen: 2,
-		asm:    ppc64.ADIVDU,
+		name:           "DIVDU",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            ppc64.ADIVDU,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1073733630}, // SP SB R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R14 R15 R16 R17 R18 R19 R20 R21 R22 R23 R24 R25 R26 R27 R28 R29
@@ -76717,9 +77045,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "DIVWU",
-		argLen: 2,
-		asm:    ppc64.ADIVWU,
+		name:           "DIVWU",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            ppc64.ADIVWU,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1073733630}, // SP SB R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R14 R15 R16 R17 R18 R19 R20 R21 R22 R23 R24 R25 R26 R27 R28 R29
@@ -76731,9 +77060,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "MODUD",
-		argLen: 2,
-		asm:    ppc64.AMODUD,
+		name:           "MODUD",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            ppc64.AMODUD,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1073733630}, // SP SB R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R14 R15 R16 R17 R18 R19 R20 R21 R22 R23 R24 R25 R26 R27 R28 R29
@@ -76745,9 +77075,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "MODSD",
-		argLen: 2,
-		asm:    ppc64.AMODSD,
+		name:           "MODSD",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            ppc64.AMODSD,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1073733630}, // SP SB R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R14 R15 R16 R17 R18 R19 R20 R21 R22 R23 R24 R25 R26 R27 R28 R29
@@ -76759,9 +77090,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "MODUW",
-		argLen: 2,
-		asm:    ppc64.AMODUW,
+		name:           "MODUW",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            ppc64.AMODUW,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1073733630}, // SP SB R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R14 R15 R16 R17 R18 R19 R20 R21 R22 R23 R24 R25 R26 R27 R28 R29
@@ -76773,9 +77105,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "MODSW",
-		argLen: 2,
-		asm:    ppc64.AMODSW,
+		name:           "MODSW",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            ppc64.AMODSW,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1073733630}, // SP SB R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R14 R15 R16 R17 R18 R19 R20 R21 R22 R23 R24 R25 R26 R27 R28 R29
@@ -78386,6 +78719,20 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
+		name:         "CALLtailinter",
+		auxType:      auxCallOff,
+		argLen:       -1,
+		clobberFlags: true,
+		call:         true,
+		tailCall:     true,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 4096}, // R12
+			},
+			clobbers: 18446744071562059768, // R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R14 R15 R16 R17 R18 R19 R20 R21 R22 R23 R24 R25 R26 R27 R28 R29 g F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 XER
+		},
+	},
+	{
 		name:         "CALLclosure",
 		auxType:      auxCallOff,
 		argLen:       -1,
@@ -79067,9 +79414,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "DIV",
-		argLen: 2,
-		asm:    riscv.ADIV,
+		name:           "DIV",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            riscv.ADIV,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1006632944}, // X5 X6 X7 X8 X9 X10 X11 X12 X13 X14 X15 X16 X17 X18 X19 X20 X21 X22 X23 X24 X25 X26 X28 X29 X30
@@ -79081,9 +79429,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "DIVU",
-		argLen: 2,
-		asm:    riscv.ADIVU,
+		name:           "DIVU",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            riscv.ADIVU,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1006632944}, // X5 X6 X7 X8 X9 X10 X11 X12 X13 X14 X15 X16 X17 X18 X19 X20 X21 X22 X23 X24 X25 X26 X28 X29 X30
@@ -79095,9 +79444,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "DIVW",
-		argLen: 2,
-		asm:    riscv.ADIVW,
+		name:           "DIVW",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            riscv.ADIVW,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1006632944}, // X5 X6 X7 X8 X9 X10 X11 X12 X13 X14 X15 X16 X17 X18 X19 X20 X21 X22 X23 X24 X25 X26 X28 X29 X30
@@ -79109,9 +79459,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "DIVUW",
-		argLen: 2,
-		asm:    riscv.ADIVUW,
+		name:           "DIVUW",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            riscv.ADIVUW,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1006632944}, // X5 X6 X7 X8 X9 X10 X11 X12 X13 X14 X15 X16 X17 X18 X19 X20 X21 X22 X23 X24 X25 X26 X28 X29 X30
@@ -79123,9 +79474,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "REM",
-		argLen: 2,
-		asm:    riscv.AREM,
+		name:           "REM",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            riscv.AREM,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1006632944}, // X5 X6 X7 X8 X9 X10 X11 X12 X13 X14 X15 X16 X17 X18 X19 X20 X21 X22 X23 X24 X25 X26 X28 X29 X30
@@ -79137,9 +79489,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "REMU",
-		argLen: 2,
-		asm:    riscv.AREMU,
+		name:           "REMU",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            riscv.AREMU,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1006632944}, // X5 X6 X7 X8 X9 X10 X11 X12 X13 X14 X15 X16 X17 X18 X19 X20 X21 X22 X23 X24 X25 X26 X28 X29 X30
@@ -79151,9 +79504,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "REMW",
-		argLen: 2,
-		asm:    riscv.AREMW,
+		name:           "REMW",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            riscv.AREMW,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1006632944}, // X5 X6 X7 X8 X9 X10 X11 X12 X13 X14 X15 X16 X17 X18 X19 X20 X21 X22 X23 X24 X25 X26 X28 X29 X30
@@ -79165,9 +79519,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "REMUW",
-		argLen: 2,
-		asm:    riscv.AREMUW,
+		name:           "REMUW",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            riscv.AREMUW,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 1006632944}, // X5 X6 X7 X8 X9 X10 X11 X12 X13 X14 X15 X16 X17 X18 X19 X20 X21 X22 X23 X24 X25 X26 X28 X29 X30
@@ -80270,6 +80625,19 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
+		name:     "CALLtailinter",
+		auxType:  auxCallOff,
+		argLen:   -1,
+		call:     true,
+		tailCall: true,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 1006632928}, // X6 X7 X8 X9 X10 X11 X12 X13 X14 X15 X16 X17 X18 X19 X20 X21 X22 X23 X24 X25 X26 X28 X29 X30
+			},
+			clobbers: 9223372035781033968, // X5 X6 X7 X8 X9 X10 X11 X12 X13 X14 X15 X16 X17 X18 X19 X20 X21 X22 X23 X24 X25 X26 g X28 X29 X30 F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+		},
+	},
+	{
 		name:    "CALLclosure",
 		auxType: auxCallOff,
 		argLen:  -1,
@@ -80781,6 +81149,19 @@ var opcodeTable = [...]opInfo{
 		name:   "FSQRTS",
 		argLen: 1,
 		asm:    riscv.AFSQRTS,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+			outputs: []outputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+		},
+	},
+	{
+		name:   "FABSS",
+		argLen: 1,
+		asm:    riscv.AFABSS,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
@@ -81420,6 +81801,34 @@ var opcodeTable = [...]opInfo{
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+			outputs: []outputInfo{
+				{0, 1006632944}, // X5 X6 X7 X8 X9 X10 X11 X12 X13 X14 X15 X16 X17 X18 X19 X20 X21 X22 X23 X24 X25 X26 X28 X29 X30
+			},
+		},
+	},
+	{
+		name:   "CZEROEQZ",
+		argLen: 2,
+		asm:    riscv.ACZEROEQZ,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 1006632944}, // X5 X6 X7 X8 X9 X10 X11 X12 X13 X14 X15 X16 X17 X18 X19 X20 X21 X22 X23 X24 X25 X26 X28 X29 X30
+				{1, 1006632944}, // X5 X6 X7 X8 X9 X10 X11 X12 X13 X14 X15 X16 X17 X18 X19 X20 X21 X22 X23 X24 X25 X26 X28 X29 X30
+			},
+			outputs: []outputInfo{
+				{0, 1006632944}, // X5 X6 X7 X8 X9 X10 X11 X12 X13 X14 X15 X16 X17 X18 X19 X20 X21 X22 X23 X24 X25 X26 X28 X29 X30
+			},
+		},
+	},
+	{
+		name:   "CZERONEZ",
+		argLen: 2,
+		asm:    riscv.ACZERONEZ,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 1006632944}, // X5 X6 X7 X8 X9 X10 X11 X12 X13 X14 X15 X16 X17 X18 X19 X20 X21 X22 X23 X24 X25 X26 X28 X29 X30
+				{1, 1006632944}, // X5 X6 X7 X8 X9 X10 X11 X12 X13 X14 X15 X16 X17 X18 X19 X20 X21 X22 X23 X24 X25 X26 X28 X29 X30
 			},
 			outputs: []outputInfo{
 				{0, 1006632944}, // X5 X6 X7 X8 X9 X10 X11 X12 X13 X14 X15 X16 X17 X18 X19 X20 X21 X22 X23 X24 X25 X26 X28 X29 X30
@@ -82238,11 +82647,12 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:         "DIVD",
-		argLen:       2,
-		resultInArg0: true,
-		clobberFlags: true,
-		asm:          s390x.ADIVD,
+		name:           "DIVD",
+		argLen:         2,
+		resultInArg0:   true,
+		clobberFlags:   true,
+		hasSideEffects: true,
+		asm:            s390x.ADIVD,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 21503}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R12 R14
@@ -82255,11 +82665,12 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:         "DIVW",
-		argLen:       2,
-		resultInArg0: true,
-		clobberFlags: true,
-		asm:          s390x.ADIVW,
+		name:           "DIVW",
+		argLen:         2,
+		resultInArg0:   true,
+		clobberFlags:   true,
+		hasSideEffects: true,
+		asm:            s390x.ADIVW,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 21503}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R12 R14
@@ -82272,11 +82683,12 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:         "DIVDU",
-		argLen:       2,
-		resultInArg0: true,
-		clobberFlags: true,
-		asm:          s390x.ADIVDU,
+		name:           "DIVDU",
+		argLen:         2,
+		resultInArg0:   true,
+		clobberFlags:   true,
+		hasSideEffects: true,
+		asm:            s390x.ADIVDU,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 21503}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R12 R14
@@ -82289,11 +82701,12 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:         "DIVWU",
-		argLen:       2,
-		resultInArg0: true,
-		clobberFlags: true,
-		asm:          s390x.ADIVWU,
+		name:           "DIVWU",
+		argLen:         2,
+		resultInArg0:   true,
+		clobberFlags:   true,
+		hasSideEffects: true,
+		asm:            s390x.ADIVWU,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 21503}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R12 R14
@@ -82306,11 +82719,12 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:         "MODD",
-		argLen:       2,
-		resultInArg0: true,
-		clobberFlags: true,
-		asm:          s390x.AMODD,
+		name:           "MODD",
+		argLen:         2,
+		resultInArg0:   true,
+		clobberFlags:   true,
+		hasSideEffects: true,
+		asm:            s390x.AMODD,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 21503}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R12 R14
@@ -82323,11 +82737,12 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:         "MODW",
-		argLen:       2,
-		resultInArg0: true,
-		clobberFlags: true,
-		asm:          s390x.AMODW,
+		name:           "MODW",
+		argLen:         2,
+		resultInArg0:   true,
+		clobberFlags:   true,
+		hasSideEffects: true,
+		asm:            s390x.AMODW,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 21503}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R12 R14
@@ -82340,11 +82755,12 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:         "MODDU",
-		argLen:       2,
-		resultInArg0: true,
-		clobberFlags: true,
-		asm:          s390x.AMODDU,
+		name:           "MODDU",
+		argLen:         2,
+		resultInArg0:   true,
+		clobberFlags:   true,
+		hasSideEffects: true,
+		asm:            s390x.AMODDU,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 21503}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R12 R14
@@ -82357,11 +82773,12 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:         "MODWU",
-		argLen:       2,
-		resultInArg0: true,
-		clobberFlags: true,
-		asm:          s390x.AMODWU,
+		name:           "MODWU",
+		argLen:         2,
+		resultInArg0:   true,
+		clobberFlags:   true,
+		hasSideEffects: true,
+		asm:            s390x.AMODWU,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 21503}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R12 R14
@@ -84286,6 +84703,20 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
+		name:         "CALLtailinter",
+		auxType:      auxCallOff,
+		argLen:       -1,
+		clobberFlags: true,
+		call:         true,
+		tailCall:     true,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 23550}, // R1 R2 R3 R4 R5 R6 R7 R8 R9 R11 R12 R14
+			},
+			clobbers: 4294933503, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R11 R12 g R14 F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15
+		},
+	},
+	{
 		name:         "CALLclosure",
 		auxType:      auxCallOff,
 		argLen:       -1,
@@ -84965,6 +85396,19 @@ var opcodeTable = [...]opInfo{
 		call:     true,
 		tailCall: true,
 		reg: regInfo{
+			clobbers: 844424930131967, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31 g
+		},
+	},
+	{
+		name:     "LoweredTailCallInter",
+		auxType:  auxCallOff,
+		argLen:   2,
+		call:     true,
+		tailCall: true,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 65535}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15
+			},
 			clobbers: 844424930131967, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31 g
 		},
 	},
@@ -85716,9 +86160,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "I64DivS",
-		argLen: 2,
-		asm:    wasm.AI64DivS,
+		name:           "I64DivS",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            wasm.AI64DivS,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 281474976776191}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 SP
@@ -85730,9 +86175,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "I64DivU",
-		argLen: 2,
-		asm:    wasm.AI64DivU,
+		name:           "I64DivU",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            wasm.AI64DivU,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 281474976776191}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 SP
@@ -85744,9 +86190,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "I64RemS",
-		argLen: 2,
-		asm:    wasm.AI64RemS,
+		name:           "I64RemS",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            wasm.AI64RemS,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 281474976776191}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 SP
@@ -85758,9 +86205,10 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:   "I64RemU",
-		argLen: 2,
-		asm:    wasm.AI64RemU,
+		name:           "I64RemU",
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            wasm.AI64RemU,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 281474976776191}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 SP
@@ -87862,6 +88310,13 @@ var opcodeTable = [...]opInfo{
 		generic: true,
 	},
 	{
+		name:    "TailCallInter",
+		auxType: auxCallOff,
+		argLen:  -1,
+		call:    true,
+		generic: true,
+	},
+	{
 		name:    "ClosureLECall",
 		auxType: auxCallOff,
 		argLen:  -1,
@@ -87884,6 +88339,13 @@ var opcodeTable = [...]opInfo{
 	},
 	{
 		name:    "TailLECall",
+		auxType: auxCallOff,
+		argLen:  -1,
+		call:    true,
+		generic: true,
+	},
+	{
+		name:    "TailLECallInter",
 		auxType: auxCallOff,
 		argLen:  -1,
 		call:    true,
@@ -88176,11 +88638,6 @@ var opcodeTable = [...]opInfo{
 		name:    "StructSelect",
 		auxType: auxInt64,
 		argLen:  1,
-		generic: true,
-	},
-	{
-		name:    "ArrayMake0",
-		argLen:  0,
 		generic: true,
 	},
 	{
@@ -88702,6 +89159,11 @@ var opcodeTable = [...]opInfo{
 		argLen:      4,
 		commutative: true,
 		generic:     true,
+	},
+	{
+		name:    "Empty",
+		argLen:  0,
+		generic: true,
 	},
 	{
 		name:    "ZeroSIMD",

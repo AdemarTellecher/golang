@@ -59,8 +59,6 @@ func TestStdlib(t *testing.T) {
 	var wg sync.WaitGroup
 
 	for dir := range dirFiles {
-		dir := dir
-
 		cpulimit <- struct{}{}
 		wg.Add(1)
 		go func() {
@@ -330,6 +328,7 @@ func TestStdFixed(t *testing.T) {
 		"issue48230.go",  // go/types doesn't check validity of //go:xxx directives
 		"issue49767.go",  // go/types does not have constraints on channel element size
 		"issue49814.go",  // go/types does not have constraints on array size
+		"issue78355.go",  // types2 does not have constraints on map element size
 		"issue56103.go",  // anonymous interface cycles; will be a type checker error in 1.22
 		"issue52697.go",  // types2 does not have constraints on stack size
 

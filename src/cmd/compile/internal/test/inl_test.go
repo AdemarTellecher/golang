@@ -115,9 +115,6 @@ func TestIntendedInlining(t *testing.T) {
 		},
 		"internal/runtime/sys": {},
 		"compress/flate": {
-			"byLiteral.Len",
-			"byLiteral.Less",
-			"byLiteral.Swap",
 			"(*dictDecoder).tryWriteCopy",
 		},
 		"encoding/base64": {
@@ -233,6 +230,9 @@ func TestIntendedInlining(t *testing.T) {
 		"testing": {
 			"(*B).Loop",
 		},
+		"time": {
+			"Duration.String",
+		},
 		"path": {
 			"Base",
 			"scanChunk",
@@ -303,11 +303,7 @@ func TestIntendedInlining(t *testing.T) {
 	}
 
 	// Functions that must actually be inlined; they must have actual callers.
-	must := map[string]bool{
-		"compress/flate.byLiteral.Len":  true,
-		"compress/flate.byLiteral.Less": true,
-		"compress/flate.byLiteral.Swap": true,
-	}
+	must := map[string]bool{}
 
 	notInlinedReason := make(map[string]string)
 	pkgs := make([]string, 0, len(want))
